@@ -1,0 +1,54 @@
+roles:
+  project-manager:
+    read_access: ["*"]
+    write_access: [".ai-team/project-control/*", ".ai-team/reports/bootstrap/*", "AGENTS.md", "CLAUDE.md", "GEMINI.md"]
+    command_access: [doctor, sync-adapters, check-adapter-drift, git-status, git-diff, git-commit]
+    approvals_required: [human-scope-changes, breaking-api-changes]
+
+  system-architect:
+    read_access: ["*"]
+    write_access: [".ai-team/engineering/ARCHITECTURE.md", ".ai-team/reports/architecture/*"]
+    command_access: []
+    approvals_required: [pm-bounded-assignment]
+
+  cybersecurity-engineer:
+    read_access: ["*"]
+    write_access: [".ai-team/engineering/SECURITY.md", ".ai-team/reports/security/*"]
+    command_access: [security-scanner]
+    approvals_required: [pm-bounded-assignment]
+
+  quality-assurance-engineer:
+    read_access: ["*"]
+    write_access: ["tests/*", ".ai-team/engineering/TESTING.md", ".ai-team/reports/testing/*"]
+    command_access: [npm-test, run-test]
+    approvals_required: [pm-bounded-assignment]
+
+  frontend-engineer:
+    read_access: ["*"]
+    write_access: ["src/renderer/*", "tests/renderer/*"]
+    command_access: [npm-run-build, npm-test]
+    approvals_required: [pm-bounded-assignment]
+
+  backend-engineer:
+    read_access: ["*"]
+    write_access: ["src/main/*", "src/preload/*", "src/core/*", "tests/main/*", "tests/core/*"]
+    command_access: [npm-run-build, npm-test]
+    approvals_required: [pm-bounded-assignment]
+
+  database-administrator:
+    read_access: ["*"]
+    write_access: ["src/storage/*", "tests/storage/*", ".ai-team/engineering/DATABASE.md"]
+    command_access: [npm-test]
+    approvals_required: [pm-bounded-assignment]
+
+  ui-ux-designer:
+    read_access: ["*"]
+    write_access: [".ai-team/engineering/UI-UX.md", ".ai-team/reports/design/*"]
+    command_access: []
+    approvals_required: [pm-bounded-assignment]
+
+  branding-designer:
+    read_access: ["*"]
+    write_access: [".ai-team/engineering/BRANDING.md", ".ai-team/reports/branding/*"]
+    command_access: []
+    approvals_required: [pm-bounded-assignment]

@@ -1,0 +1,32 @@
+mcps:
+  - id: codebase-memory
+    display_name: Codebase Memory
+    category: code-intelligence
+    status: unverified
+    required: false
+    scope: workspace
+    roles: [project-manager, system-architect, cybersecurity-engineer, quality-assurance-engineer]
+    capabilities: [architecture, symbol-search, call-graph, change-impact]
+    configuration_source: environment-or-user-config
+    secret_fields: []
+    fallback: [native-search, language-server]
+    verification:
+      command: null
+      result: unverified
+    notes: Optional code intelligence graph tool.
+
+  - id: filesystem
+    display_name: Local Workspace Filesystem MCP
+    category: filesystem
+    status: available
+    required: true
+    scope: workspace
+    roles: [project-manager, system-architect, cybersecurity-engineer, quality-assurance-engineer, frontend-engineer, backend-engineer, database-administrator, ui-ux-designer, branding-designer]
+    capabilities: [read-file, edit-file, list-dir]
+    configuration_source: agent-environment
+    secret_fields: []
+    fallback: [native-file-system]
+    verification:
+      command: null
+      result: verified
+    notes: Standard workspace filesystem access.

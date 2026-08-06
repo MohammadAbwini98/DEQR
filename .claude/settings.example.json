@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow_file_edits": true,
+    "allow_shell_commands": true
+  },
+  "concurrency": {
+    "max_threads": 4
+  }
+}

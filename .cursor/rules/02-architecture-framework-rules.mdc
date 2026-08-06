@@ -1,0 +1,12 @@
+---
+description: Electron, React, TypeScript, Vite, and Fountain Coding rules
+globs: src/**/*
+---
+
+# Architecture & Framework Rules
+
+- Electron Main process logic resides in `src/main/*`.
+- Renderer React components reside in `src/renderer/*`.
+- Preload contextBridge methods reside in `src/preload/*`.
+- Optical stream fountain coding engine resides in `src/core/*`.
+- Node integration is disabled in renderer (`nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`).

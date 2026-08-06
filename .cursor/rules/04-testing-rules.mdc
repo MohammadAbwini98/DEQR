@@ -1,0 +1,9 @@
+---
+description: Automated test execution and empirical evidence rules
+globs: tests/**/*
+---
+
+# Testing Rules
+
+- Never mark a test check passed without executing the test runner and capturing output logs.
+- All code changes require unit tests and protocol golden vector verification.

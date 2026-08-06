@@ -1,0 +1,7 @@
+[sandbox]
+read_only = false
+concurrency = 4
+
+[agents]
+default_role = "project-manager"
+canonical_path = ".ai-team/roles/"

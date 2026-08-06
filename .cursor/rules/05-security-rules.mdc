@@ -1,0 +1,11 @@
+---
+description: Strict offline security rules, CSP headers, and electron fuses
+globs: *
+---
+
+# Security Rules
+
+- Strict air-gapped offline operation. Zero remote HTTP/WS network requests permitted.
+- Content Security Policy (CSP) restricts default-src to 'self'.
+- Mandatory SHA-256 payload hash verification before saving files to disk.
+- Received binary executable payloads must never be auto-executed.

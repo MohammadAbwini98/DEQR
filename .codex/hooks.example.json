@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "pre_commit": "node scripts/ai/doctor.js"
+  }
+}

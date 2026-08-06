@@ -1,0 +1,48 @@
+tools:
+  - id: file-operations
+    display_name: File Operations (Read/Search/Edit/Create)
+    category: filesystem
+    status: available
+    required: true
+    capabilities: [read, search, edit, create]
+    permitted_roles: [project-manager, system-architect, cybersecurity-engineer, quality-assurance-engineer, frontend-engineer, backend-engineer, database-administrator, ui-ux-designer, branding-designer]
+    verification:
+      command: null
+      result: verified
+    fallback: native-file-system
+
+  - id: git
+    display_name: Git Version Control
+    category: SCM
+    status: available
+    required: true
+    capabilities: [status, diff, commit]
+    permitted_roles: [project-manager]
+    verification:
+      command: git status
+      result: verified
+    fallback: manual-file-tracking
+
+  - id: node-npm
+    display_name: Node.js & NPM Package Manager
+    category: build-system
+    status: detected
+    required: true
+    capabilities: [install, build, test, package]
+    permitted_roles: [project-manager, quality-assurance-engineer, frontend-engineer, backend-engineer]
+    verification:
+      command: node -v
+      result: unverified
+    fallback: manual-execution
+
+  - id: ai-doctor
+    display_name: AI System Architecture Validator
+    category: validation
+    status: available
+    required: true
+    capabilities: [validate-system-integrity, check-adapter-drift]
+    permitted_roles: [project-manager]
+    verification:
+      command: node scripts/ai/doctor.js
+      result: verified
+    fallback: manual-checklist

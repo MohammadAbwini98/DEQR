@@ -1,0 +1,11 @@
+---
+description: Hub-and-Spoke Project Manager multi-agent orchestration rules
+globs: .ai-team/**/*
+---
+
+# Multi-Agent PM Workflow Rules
+
+- The Human Product Owner interacts ONLY with the Project Manager.
+- Specialist agents report exclusively to the PM with bounded file ownership.
+- Do not activate all specialists for every task; use minimal staffing.
+- Run `node scripts/ai/doctor.js` to validate system integrity before completing project cycles.

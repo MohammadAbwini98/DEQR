@@ -1,0 +1,27 @@
+{
+  "active_assignments": [
+    {
+      "task_id": "TSK-000",
+      "title": "Multi-Agent System Architecture Initialization",
+      "role": "project-manager",
+      "status": "COMPLETED",
+      "owned_files": [
+        ".ai-team/*",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".agents/*",
+        ".cursor/*",
+        "scripts/ai/*"
+      ],
+      "acceptance_criteria": [
+        "Canonical .ai-team structure complete",
+        "9 role contracts created",
+        "22 skill libraries created",
+        "8 operational workflows created",
+        "Vendor adapters generated",
+        "Doctor validator passing"
+      ]
+    }
+  ]
+}

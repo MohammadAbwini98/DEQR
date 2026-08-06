@@ -1,0 +1,9 @@
+---
+description: Local storage schema and audit data integrity rules
+globs: src/storage/**/*
+---
+
+# Data & Storage Rules
+
+- Audit history logs must NEVER store raw transferred payload file bytes.
+- Local storage schema modifications must be backward-compatible and managed by the Database Administrator role.

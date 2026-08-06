@@ -1,0 +1,11 @@
+---
+description: Shared DEQR project rules and mandatory entry points
+globs: *
+---
+
+# Shared DEQR Project Rules
+
+- Canonical authority is located in [.ai-team/](file:///d:/Projects/DEQR/.ai-team/README.md) and [AGENTS.md](file:///d:/Projects/DEQR/AGENTS.md).
+- Human product owner communicates ONLY with the Project Manager.
+- All code changes require independent QA and Security review.
+- Never write credentials, tokens, or machine-specific absolute paths into committed files.
