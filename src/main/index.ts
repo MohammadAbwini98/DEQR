@@ -42,7 +42,22 @@ function createWindow() {
     callback(false);
   });
 
-  // Network policy enforcement: Handled implicitly by strict CSP and not allowing any custom protocols to external IPs
+  // Strict Network Denial
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    const url = details.url;
+    // Allow devtools, data URIs, local files, and the local vite server
+    if (
+      url.startsWith('devtools:') || 
+      url.startsWith('file:') || 
+      url.startsWith('data:') || 
+      url.startsWith('http://localhost:5173')
+    ) {
+      callback({ cancel: false });
+    } else {
+      console.warn('Blocked external network request:', url);
+      callback({ cancel: true });
+    }
+  });
 
   if (app.isPackaged) {
     mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));

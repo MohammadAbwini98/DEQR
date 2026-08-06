@@ -17,11 +17,8 @@ export default function QRCanvas({ sessionId, onCancel }: Props) {
       setStats(newStats);
       if (canvasRef.current) {
         try {
-          // Convert binary payload to Latin-1 string for QR encoding
-          // qrcode library handles binary data if passed as an array of objects
-          const binaryStr = Array.from(payload).map(b => String.fromCharCode(b)).join('');
-          
-          await QRCode.toCanvas(canvasRef.current, [{ data: binaryStr, mode: 'byte' }], {
+          // Pass the Uint8Array natively to qrcode to prevent UTF-8 mangling
+          await QRCode.toCanvas(canvasRef.current, [{ data: payload as Uint8Array, mode: 'byte' }], {
             errorCorrectionLevel: 'L',
             margin: 2,
             width: 400,

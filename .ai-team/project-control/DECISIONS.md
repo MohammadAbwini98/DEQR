@@ -37,3 +37,23 @@
 - **Context**: The core Luby Transform (LT) algorithm fails to reliably recover small payloads (e.g., K=1 through K=16 blocks) under a fixed 1.4x-2.5x frame overhead. Generating random repair frames often misses essential source blocks entirely.
 - **Decision**: Adopt a "Systematic Fountain Mode" prefix in the core encoder. The encoder emits the exact source blocks (degree 1) for the first K frames (`sequenceNumber < K`). Subsequent frames (`sequenceNumber >= K`) fall back to probabilistic LT repair symbols via the Robust Soliton distribution. The decoder is updated symmetrically. The UI will stream frames continuously without an arbitrary fixed upper limit until the decoder signals completion.
 - **Consequences**: 100% recovery for zero-drop scenarios using exactly K frames. Massive reliability improvement for K < 16 without requiring binary protocol revisions. Decoder cancellation and resource bounds are enforced via maximum active memory checks (OOM prevention).
+
+---
+
+## ADR-005: Synthetic AWKIT Theme Implementation
+
+- **Date**: 2026-08-06
+- **Status**: APPROVED
+- **Context**: The `UI-UX.md` specification mandates the use of AWKIT design system tokens, but the actual repository did not contain an AWKIT library or design asset package.
+- **Decision**: Implemented a synthetic AWKIT-aligned glass-dark theme using vanilla CSS variables (`src/renderer/styles/theme.css`). 
+- **Consequences**: Avoids blocking Stage 3 on missing design dependencies while retaining the mandated aesthetic.
+
+---
+
+## ADR-006: QR Byte Fidelity representation using Uint8Array
+
+- **Date**: 2026-08-06
+- **Status**: APPROVED
+- **Context**: Passing Stage 2 optical binary frames to the QR generation library (`qrcode`) via a Latin-1 string translation introduces severe risk of UTF-8 re-encoding corruption for bytes > `0x7F`.
+- **Decision**: Refactor the QR canvas generation to pass the raw payload bytes directly via `Uint8Array` to `qrcode`'s native byte-mode interface (`[{ data: uint8array, mode: 'byte' }]`).
+- **Consequences**: Guarantees perfectly reversible byte-for-byte frame transmission. Tested and verified to preserve all `0x00 - 0xFF` values without mutation.
