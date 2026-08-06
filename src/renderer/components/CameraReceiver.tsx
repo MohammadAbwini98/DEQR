@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FountainDecoder } from '../../core/fountain-decoder';
+import { deserializeFrame } from '../../core/protocol';
 import { SafeDisplayMetadata } from '../../shared/types';
 // Vite syntax for worker
 import DecoderWorker from '../workers/decoder.worker?worker';
@@ -50,27 +51,35 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
 
   // Handle stream initialization when camera changes
   useEffect(() => {
-    if (!selectedCameraId) return;
+    if (!selectedCameraId && cameras.length > 0) return;
 
     let currentStream: MediaStream | null = null;
     
     const startStream = async () => {
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: {
+          video: selectedCameraId ? {
             deviceId: { exact: selectedCameraId },
             width: { ideal: 1280 },
             height: { ideal: 720 },
             facingMode: 'environment'
-          }
+          } : { facingMode: 'environment' }
         });
         
         if (videoRef.current) {
           videoRef.current.srcObject = currentStream;
           videoRef.current.play();
         }
-      } catch (err) {
-        console.error('Failed to start camera:', err);
+      } catch (err: any) {
+        if (err.name === 'NotAllowedError') {
+          console.error('Camera permission denied.');
+          alert('Camera permission is required to receive transfers.');
+        } else if (err.name === 'NotFoundError') {
+          console.error('No camera found.');
+          alert('No compatible camera was found.');
+        } else {
+          console.error('Failed to start camera:', err);
+        }
       }
     };
     
@@ -81,26 +90,25 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
         currentStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [selectedCameraId]);
+  }, [selectedCameraId, cameras.length]);
 
   const handleFrameDecoded = useCallback((binaryData: Uint8Array) => {
     try {
-      const isComplete = decoderRef.current.receiveFrame(binaryData);
+      const frame = deserializeFrame(Buffer.from(binaryData));
+      const isComplete = decoderRef.current.receiveFrame(frame);
       setReceivedFrames(prev => prev + 1);
       setRecoveredBlocks(decoderRef.current.getSolvedCount());
 
       if (isComplete) {
-        const payload = decoderRef.current.reconstructPayload();
-        // The decoder does not currently extract container metadata intrinsically, 
-        // that's in the container logic, but for Phase 2 we just pass the payload.
-        // Wait, we need to extract metadata using ContainerFormat.
-        // I will do that via a utility or hardcode a mock metadata for now if ContainerFormat isn't exposed.
-        onVerified(payload, { 
-          filename: 'received_transfer.bin', 
-          size: payload.length, 
+        // We pass the full container buffer up. Main process will deserialize it and verify hash.
+        const containerBuffer = decoderRef.current.reconstructPayload();
+        
+        onVerified(containerBuffer, { 
+          filename: 'received_transfer.deqr', // This is a placeholder; Main extracts the real one
+          size: containerBuffer.length, 
           compressed: false, 
           mimeType: 'application/octet-stream', 
-          extension: '.bin' 
+          extension: '.deqr' 
         });
       }
     } catch (e) {

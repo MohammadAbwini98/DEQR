@@ -5,6 +5,8 @@ import { sanitizeError, ErrorCode, DeqrError } from '../shared/errors';
 import { FountainEncoder } from '../core/fountain-encoder';
 import { FountainDecoder } from '../core/fountain-decoder';
 import { serializeFrame } from '../core/protocol';
+import { deserializeContainer } from '../core/container';
+import { computeSha256 } from '../core/hash';
 
 export function registerIpcHandlers() {
   ipcMain.handle('windowControls:minimize', (event) => {
@@ -102,22 +104,38 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('receive:saveReceivedFile', async (event, fileData: Uint8Array, defaultName: string) => {
+  ipcMain.handle('receive:saveReceivedFile', async (event, containerData: Uint8Array, defaultName: string) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
       if (!window) return false;
 
+      // 1. Validate container & extract metadata
+      const containerBuffer = Buffer.from(containerData);
+      const container = deserializeContainer(containerBuffer);
+
+      // 2. Validate cryptographic hash in Main
+      const actualHash = computeSha256(container.payload);
+      if (!actualHash.equals(container.metadata.sha256)) {
+        console.error('Hash mismatch: Container payload does not match metadata SHA-256');
+        return false;
+      }
+
+      // 3. Prompt user with sanitized filename from container
       const { canceled, filePath } = await dialog.showSaveDialog(window, {
         title: 'Save Received File',
-        defaultPath: defaultName
+        defaultPath: container.metadata.filename || defaultName
       });
 
       if (canceled || !filePath) return false;
 
-      await fs.promises.writeFile(filePath, fileData);
+      // 4. Atomic write via temp file
+      const tmpPath = `${filePath}.deqr.tmp`;
+      await fs.promises.writeFile(tmpPath, container.payload);
+      await fs.promises.rename(tmpPath, filePath);
+
       return true;
     } catch (e) {
-      console.error('Failed to save file', e);
+      console.error('Failed to save file:', e);
       return false;
     }
   });

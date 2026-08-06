@@ -37,9 +37,27 @@ function createWindow() {
     return { action: 'deny' };
   });
   
-  // Permission Denial
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+  // Strict Permission Denial (allow only specific media)
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const url = webContents.getURL();
+    const isTrusted = url.startsWith('file://') || url.startsWith('http://localhost:5173');
+
+    if (permission === 'media' && isTrusted) {
+      if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
+        return callback(true);
+      }
+    }
     callback(false);
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const isTrusted = requestingOrigin.startsWith('file://') || requestingOrigin.startsWith('http://localhost:5173');
+    if (permission === 'media' && isTrusted) {
+      if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
+        return true;
+      }
+    }
+    return false;
   });
 
   // Strict Network Denial
