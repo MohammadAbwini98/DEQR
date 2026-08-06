@@ -33,8 +33,9 @@ export function compressIfBeneficial(data: Buffer): { buffer: Buffer; compressed
 /**
  * Decompresses gzip data.
  * @param data The compressed input buffer.
+ * @param maxOutputLength Maximum expected decompressed size (for safety).
  * @returns The decompressed buffer.
  */
-export function decompress(data: Buffer): Buffer {
-  return gunzipSync(data);
+export function decompress(data: Buffer, maxOutputLength?: number): Buffer {
+  return gunzipSync(data, { maxOutputLength });
 }

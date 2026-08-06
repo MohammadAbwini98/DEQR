@@ -218,7 +218,7 @@ describe('DEQR Core Pipeline', () => {
 
     // 8. Decompress (if needed)
     const finalData = reconstructedContainer.metadata.compressed 
-      ? decompress(reconstructedContainer.payload) 
+      ? decompress(reconstructedContainer.payload, reconstructedContainer.metadata.originalSize) 
       : reconstructedContainer.payload;
 
     expect(computeSha256(finalData).equals(sha256)).toBe(true);

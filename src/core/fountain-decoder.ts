@@ -1,5 +1,6 @@
 import { PRNG, RobustSoliton } from './prng.js';
 import { Frame } from './protocol.js';
+import { MAX_FILE_SIZE } from './container.js';
 
 interface DecoderNode {
   sequenceNumber: number;
@@ -42,6 +43,13 @@ export class FountainDecoder {
 
     // Initialize session parameters on first valid frame
     if (this.sessionId === -1) {
+      if (header.totalPayloadLength > MAX_FILE_SIZE) {
+        throw new Error(`Payload length ${header.totalPayloadLength} exceeds maximum allowed (${MAX_FILE_SIZE} bytes)`);
+      }
+      if (header.blockCount * header.blockSize > MAX_FILE_SIZE + header.blockSize) {
+        throw new Error('Block parameters exceed maximum allowed memory bounds');
+      }
+
       this.sessionId = header.sessionId;
       this.blockCount = header.blockCount;
       this.blockSize = header.blockSize;
@@ -65,10 +73,20 @@ export class FountainDecoder {
       return false;
     }
 
-    // Determine the neighbors (block indices) for this frame using the PRNG
-    const prng = new PRNG(header.sequenceNumber);
-    const d = this.soliton!.sampleDegree(prng);
-    const neighbors = this.selectDistinctIndices(prng, d, this.blockCount);
+    // Determine the neighbors (block indices) for this frame
+    let d: number;
+    let neighbors: number[];
+
+    if (header.sequenceNumber < this.blockCount) {
+      // Systematic frame: exactly matches block[sequenceNumber]
+      d = 1;
+      neighbors = [header.sequenceNumber];
+    } else {
+      // Repair frame: use PRNG and Soliton distribution
+      const prng = new PRNG(header.sequenceNumber);
+      d = this.soliton!.sampleDegree(prng);
+      neighbors = this.selectDistinctIndices(prng, d, this.blockCount);
+    }
 
     // Create the node
     let node: DecoderNode = {

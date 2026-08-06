@@ -55,25 +55,30 @@ export class FountainEncoder {
   /**
    * Generates the next fountain frame.
    * This can be called indefinitely to generate as many frames as needed.
+   * 
+   * Uses Systematic Fountain Mode:
+   * Frames with sequenceNumber < blockCount (K) are emitted as degree-1 
+   * original source blocks. Frames with sequenceNumber >= K are LT repair symbols.
    */
   public nextFrame(): Frame {
     const sequenceNumber = this.sequenceCounter++;
-    
-    // Seed PRNG with the sequence number to deterministically select the same blocks on receiver
-    const prng = new PRNG(sequenceNumber);
-    
-    // 1. Sample degree d
-    const d = this.soliton.sampleDegree(prng);
-    
-    // 2. Select d distinct block indices
-    const selectedIndices = this.selectDistinctIndices(prng, d, this.blockCount);
-    
-    // 3. XOR the selected blocks together
-    const framePayload = Buffer.alloc(this.blockSize, 0);
-    for (const index of selectedIndices) {
-      const block = this.blocks[index];
-      for (let i = 0; i < this.blockSize; i++) {
-        framePayload[i] ^= block[i];
+    let framePayload = Buffer.alloc(this.blockSize, 0);
+
+    if (sequenceNumber < this.blockCount) {
+      // Systematic frame: Degree 1, containing exactly block[sequenceNumber]
+      const block = this.blocks[sequenceNumber];
+      block.copy(framePayload);
+    } else {
+      // Repair frame: LT codes via Soliton distribution
+      const prng = new PRNG(sequenceNumber);
+      const d = this.soliton.sampleDegree(prng);
+      const selectedIndices = this.selectDistinctIndices(prng, d, this.blockCount);
+      
+      for (const index of selectedIndices) {
+        const block = this.blocks[index];
+        for (let i = 0; i < this.blockSize; i++) {
+          framePayload[i] ^= block[i];
+        }
       }
     }
 

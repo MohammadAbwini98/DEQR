@@ -27,3 +27,13 @@
 - **Context**: `init.md` proposes AES-256-GCM encryption for transferred payloads. However, implementing encryption without a complete specification covering key derivation parameters, nonce strategy, authentication tag handling, metadata coverage, failure behavior, and recovery implications introduces security risk rather than reducing it.
 - **Decision**: Defer encryption implementation from Milestone M1. Record it as a planned security tranche (TSK-040, TSK-041). The Cybersecurity Engineer must deliver a complete encryption design specification before any encryption code is written. M1 transfers are unencrypted, consistent with the upstream Decimen project which explicitly states its transfer is not encrypted.
 - **Consequences**: M1 optical transfers are visible to any camera observing the screen. The threat model (TM-001) documents this risk. The protocol container reserves an Encryption Flag byte for forward compatibility. Users requiring confidentiality must rely on physical screen security until the encryption tranche is implemented.
+
+---
+
+## ADR-004: Systematic Fountain Mode for Low-K Reliability
+
+- **Date**: 2026-08-06
+- **Status**: APPROVED
+- **Context**: The core Luby Transform (LT) algorithm fails to reliably recover small payloads (e.g., K=1 through K=16 blocks) under a fixed 1.4x-2.5x frame overhead. Generating random repair frames often misses essential source blocks entirely.
+- **Decision**: Adopt a "Systematic Fountain Mode" prefix in the core encoder. The encoder emits the exact source blocks (degree 1) for the first K frames (`sequenceNumber < K`). Subsequent frames (`sequenceNumber >= K`) fall back to probabilistic LT repair symbols via the Robust Soliton distribution. The decoder is updated symmetrically. The UI will stream frames continuously without an arbitrary fixed upper limit until the decoder signals completion.
+- **Consequences**: 100% recovery for zero-drop scenarios using exactly K frames. Massive reliability improvement for K < 16 without requiring binary protocol revisions. Decoder cancellation and resource bounds are enforced via maximum active memory checks (OOM prevention).

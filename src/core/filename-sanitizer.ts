@@ -59,7 +59,7 @@ export function sanitizeFilename(filename: string): string {
  */
 function getExtension(filename: string): string {
   const dotIndex = filename.lastIndexOf('.');
-  if (dotIndex <= 0) return '';
+  if (dotIndex < 0) return '';
   return filename.substring(dotIndex);
 }
 
