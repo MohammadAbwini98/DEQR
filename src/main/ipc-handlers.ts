@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, dialog } from 'electron';
+import fs from 'fs';
 import { globalSessionManager, SessionState } from './session-manager';
 import { sanitizeError, ErrorCode, DeqrError } from '../shared/errors';
 import { FountainEncoder } from '../core/fountain-encoder';
@@ -98,6 +99,26 @@ export function registerIpcHandlers() {
     if (session.activeLoopback) {
       clearInterval(session.activeLoopback.intervalId);
       session.activeLoopback = undefined;
+    }
+  });
+
+  ipcMain.handle('receive:saveReceivedFile', async (event, fileData: Uint8Array, defaultName: string) => {
+    try {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return false;
+
+      const { canceled, filePath } = await dialog.showSaveDialog(window, {
+        title: 'Save Received File',
+        defaultPath: defaultName
+      });
+
+      if (canceled || !filePath) return false;
+
+      await fs.promises.writeFile(filePath, fileData);
+      return true;
+    } catch (e) {
+      console.error('Failed to save file', e);
+      return false;
     }
   });
 }

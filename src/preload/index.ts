@@ -41,6 +41,10 @@ const api: DeqrAPI = {
         ipcRenderer.removeListener(channel, handler);
       };
     }
+  },
+  receive: {
+    saveReceivedFile: (fileData: Uint8Array, defaultName: string) => 
+      ipcRenderer.invoke('receive:saveReceivedFile', fileData, defaultName)
   }
 };
 

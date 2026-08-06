@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { TransferState, FileSelectionResult, TransferStats, LoopbackStats } from '../shared/types';
+import React, { useState } from 'react';
+import { TransferState, FileSelectionResult } from '../shared/types';
 import Dashboard from './components/Dashboard';
 import QRCanvas from './components/QRCanvas';
 import LoopbackView from './components/LoopbackView';
+import CameraReceiver from './components/CameraReceiver';
 
 export default function App() {
   const [state, setState] = useState<TransferState>('idle');
@@ -54,12 +55,30 @@ export default function App() {
     }
   };
 
+  const handleReceiveFile = () => {
+    setState('receive-camera');
+  };
+
+  const handleVerifiedReceive = async (payload: Uint8Array, metadata: any) => {
+    setState('verifying');
+    const success = await window.deqr.receive.saveReceivedFile(payload, metadata.filename);
+    if (success) {
+      setState('verified');
+      alert('File successfully received and saved!');
+      setState('idle');
+    } else {
+      setError('Failed to save file');
+      setState('failed');
+    }
+  };
+
   const handleCancel = async () => {
-    if (!session) return;
-    try {
-      await window.deqr.transfer.cancel(session.sessionId);
-      await window.deqr.loopback.cancel(session.sessionId);
-    } catch (e) {}
+    if (session) {
+      try {
+        await window.deqr.transfer.cancel(session.sessionId);
+        await window.deqr.loopback.cancel(session.sessionId);
+      } catch (e) {}
+    }
     setSession(null);
     setState('idle');
   };
@@ -77,6 +96,7 @@ export default function App() {
         {(state === 'idle' || state === 'selecting-file' || state === 'failed') && (
           <Dashboard 
             onSelectFile={handleSelectFile} 
+            onReceiveFile={handleReceiveFile}
             error={error} 
             isSelecting={state === 'selecting-file'} 
           />
@@ -102,6 +122,10 @@ export default function App() {
 
         {state === 'loopback-receiving' && session && (
           <LoopbackView sessionId={session.sessionId} onCancel={handleCancel} />
+        )}
+
+        {state === 'receive-camera' && (
+          <CameraReceiver onCancel={handleCancel} onVerified={handleVerifiedReceive} />
         )}
       </div>
     </div>

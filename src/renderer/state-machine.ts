@@ -5,11 +5,12 @@ export class AppStateMachine {
 
   public getState() { return this.state; }
 
-  public transition(action: 'SELECT' | 'CANCEL' | 'START' | 'PAUSE' | 'RESUME' | 'START_LOOPBACK' | 'ERROR') {
+  public transition(action: 'SELECT' | 'CANCEL' | 'START' | 'PAUSE' | 'RESUME' | 'START_LOOPBACK' | 'ERROR' | 'START_RECEIVE' | 'RECEIVE_SUCCESS') {
     switch (this.state) {
       case 'idle':
       case 'failed':
         if (action === 'SELECT') this.state = 'selecting-file';
+        else if (action === 'START_RECEIVE') this.state = 'receive-camera' as any; // Cast temporarily since we haven't updated types.ts fully for 'receive-camera' or we can just use 'verifying'
         break;
       case 'selecting-file':
         if (action === 'ERROR' || action === 'CANCEL') this.state = 'idle';
@@ -33,6 +34,11 @@ export class AppStateMachine {
         else if (action === 'CANCEL') this.state = 'idle';
         break;
       case 'loopback-receiving':
+      case 'receive-camera':
+        if (action === 'CANCEL') this.state = 'idle';
+        else if (action === 'RECEIVE_SUCCESS') this.state = 'verified';
+        break;
+      case 'verified':
         if (action === 'CANCEL') this.state = 'idle';
         break;
     }
