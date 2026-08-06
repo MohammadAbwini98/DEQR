@@ -40,24 +40,28 @@ function createWindow() {
   // Strict Permission Denial (allow only specific media)
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const url = webContents.getURL();
-    const isTrusted = url.startsWith('file://') || url.startsWith('http://localhost:5173');
+    const isTrusted = url === 'http://localhost:5173/' || url.startsWith('file://'); // Strict origin check
+    const isMainFrame = details.isMainFrame;
 
-    if (permission === 'media' && isTrusted) {
+    if (permission === 'media' && isTrusted && isMainFrame) {
       if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
         return callback(true);
       }
     }
-    callback(false);
+    callback(false); // Default deny
   });
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-    const isTrusted = requestingOrigin.startsWith('file://') || requestingOrigin.startsWith('http://localhost:5173');
-    if (permission === 'media' && isTrusted) {
+    const isTrusted = requestingOrigin === 'http://localhost:5173' || requestingOrigin.startsWith('file://'); // Strict origin
+    // Note: details.isMainFrame is not always available in PermissionCheckHandler in some Electron versions, but we check if we can
+    const isMainFrame = details?.isMainFrame ?? true;
+
+    if (permission === 'media' && isTrusted && isMainFrame) {
       if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
         return true;
       }
     }
-    return false;
+    return false; // Default deny
   });
 
   // Strict Network Denial

@@ -44,7 +44,11 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
     }).catch(err => console.error('Enumerate devices failed:', err));
 
     return () => {
-      workerRef.current?.terminate();
+      if (workerRef.current) {
+        workerRef.current.onmessage = null;
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
       cancelAnimationFrame(animationRef.current);
     };
   }, []);
@@ -87,7 +91,14 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
 
     return () => {
       if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
+        currentStream.getTracks().forEach(track => {
+          track.enabled = false;
+          track.stop();
+        });
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
       }
     };
   }, [selectedCameraId, cameras.length]);

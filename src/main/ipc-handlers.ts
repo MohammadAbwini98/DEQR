@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
+import crypto from 'crypto';
 import { globalSessionManager, SessionState } from './session-manager';
 import { sanitizeError, ErrorCode, DeqrError } from '../shared/errors';
 import { FountainEncoder } from '../core/fountain-encoder';
@@ -128,10 +129,20 @@ export function registerIpcHandlers() {
 
       if (canceled || !filePath) return false;
 
-      // 4. Atomic write via temp file
-      const tmpPath = `${filePath}.deqr.tmp`;
-      await fs.promises.writeFile(tmpPath, container.payload);
-      await fs.promises.rename(tmpPath, filePath);
+      // 4. Atomic write via unique temp file
+      const tmpPath = `${filePath}.${crypto.randomUUID()}.deqr.tmp`;
+      try {
+        await fs.promises.writeFile(tmpPath, container.payload);
+        await fs.promises.rename(tmpPath, filePath);
+      } catch (writeErr) {
+        // Cleanup temp file if it exists and write/rename failed
+        try {
+          await fs.promises.unlink(tmpPath);
+        } catch (cleanupErr) {
+          // Ignore if it didn't exist
+        }
+        throw writeErr;
+      }
 
       return true;
     } catch (e) {
