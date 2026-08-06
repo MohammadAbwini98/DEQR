@@ -215,6 +215,15 @@ export function deserializeContainer(data: Buffer): DeqrContainer {
 
   // Payload
   const payload = Buffer.from(data.subarray(offset));
+  offset += payload.length;
+
+  if (!compressed && payload.length !== originalSize) {
+    throw new Error(`Container rejected: trailing unconsumed bytes detected or payload truncated. Expected ${originalSize} bytes, got ${payload.length} bytes`);
+  }
+  
+  if (offset !== data.length) {
+    throw new Error(`Container rejected: trailing unconsumed bytes detected (${data.length - offset} bytes)`);
+  }
 
   return {
     metadata: {

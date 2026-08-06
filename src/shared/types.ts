@@ -77,6 +77,7 @@ export interface DeqrAPI {
     cancel: (sessionId: number) => Promise<void>;
     saveVerifiedResult: (sessionId: number) => Promise<void>;
     subscribe: (sessionId: number, listener: (stats: LoopbackStats) => void) => () => void;
+  };
   receive: {
     saveReceivedFile: (fileData: Uint8Array, defaultName: string) => Promise<boolean>;
   };

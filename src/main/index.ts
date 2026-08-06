@@ -39,12 +39,16 @@ function createWindow() {
   
   // Strict Permission Denial (allow only specific media)
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    if (!webContents) {
+      return callback(false);
+    }
     const url = webContents.getURL();
     const isTrusted = url === 'http://localhost:5173/' || url.startsWith('file://'); // Strict origin check
-    const isMainFrame = details.isMainFrame;
+    const isMainFrame = details.isMainFrame === true;
 
     if (permission === 'media' && isTrusted && isMainFrame) {
-      if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
+      const mediaDetails = details as any;
+      if (mediaDetails.mediaTypes && mediaDetails.mediaTypes.includes('video') && !mediaDetails.mediaTypes.includes('audio')) {
         return callback(true);
       }
     }
@@ -52,12 +56,20 @@ function createWindow() {
   });
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-    const isTrusted = requestingOrigin === 'http://localhost:5173' || requestingOrigin.startsWith('file://'); // Strict origin
-    // Note: details.isMainFrame is not always available in PermissionCheckHandler in some Electron versions, but we check if we can
-    const isMainFrame = details?.isMainFrame ?? true;
+    if (!webContents) {
+      return false;
+    }
+    const url = webContents.getURL();
+    // Validate both the requestingOrigin and the actual webContents URL
+    const isOriginTrusted = requestingOrigin === 'http://localhost:5173' || requestingOrigin.startsWith('file://');
+    const isUrlTrusted = url === 'http://localhost:5173/' || url.startsWith('file://');
+    const isTrusted = isOriginTrusted && isUrlTrusted;
+    
+    const isMainFrame = details?.isMainFrame === true;
 
     if (permission === 'media' && isTrusted && isMainFrame) {
-      if (details.mediaTypes?.includes('video') && !details.mediaTypes.includes('audio')) {
+      const mediaDetails = details as any;
+      if (mediaDetails.mediaTypes && mediaDetails.mediaTypes.includes('video') && !mediaDetails.mediaTypes.includes('audio')) {
         return true;
       }
     }

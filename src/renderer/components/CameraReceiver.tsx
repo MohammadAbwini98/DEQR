@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FountainDecoder } from '../../core/fountain-decoder';
 import { deserializeFrame } from '../../core/protocol';

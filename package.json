@@ -16,10 +16,24 @@
     "test:watch": "vitest",
     "lint": "echo 'lint not configured'",
     "doctor": "node scripts/ai/doctor.js",
-    "drift-check": "node scripts/ai/check-adapter-drift.js"
+    "drift-check": "node scripts/ai/check-adapter-drift.js",
+    "package": "npm run build && npm run build:main && npm run build:preload && electron-builder --dir",
+    "dist": "npm run build && npm run build:main && npm run build:preload && electron-builder"
   },
   "dependencies": {
     "qrcode": "^1.5.4"
+  },
+  "build": {
+    "appId": "com.deqr.app",
+    "files": [
+      "dist/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -28,6 +42,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "canvas": "^3.2.3",
     "electron": "^36.0.0",
+    "electron-builder": "^26.15.3",
     "jsqr": "^1.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

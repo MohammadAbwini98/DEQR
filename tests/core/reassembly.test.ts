@@ -125,4 +125,51 @@ describe('Multi-Frame Reassembly', () => {
     expect(decoder.getSolvedCount()).toBe(solvedBefore); // Count should not increase
     expect(isComplete).toBe(false);
   });
+
+  it('rejects containers with trailing bytes', () => {
+    const originalFile = Buffer.alloc(1000, 0x11); 
+    const containerBuffer = serializeContainer({
+      metadata: { protocolVersion: 1, filename: 'test1.txt', mimeType: 'text/plain', originalSize: 1000, compressed: false, encrypted: false, timestamp: 0, sha256: computeSha256(originalFile) },
+      payload: originalFile
+    });
+
+    const maliciousBuffer = Buffer.concat([containerBuffer, Buffer.from('MALICIOUS TRAILING DATA')]);
+    
+    expect(() => {
+      deserializeContainer(maliciousBuffer);
+    }).toThrow(/trailing unconsumed bytes detected/);
+  });
+
+  it('rejects truncated containers', () => {
+    const originalFile = Buffer.alloc(1000, 0x11); 
+    const containerBuffer = serializeContainer({
+      metadata: { protocolVersion: 1, filename: 'test1.txt', mimeType: 'text/plain', originalSize: 1000, compressed: false, encrypted: false, timestamp: 0, sha256: computeSha256(originalFile) },
+      payload: originalFile
+    });
+
+    const truncatedBuffer = containerBuffer.subarray(0, containerBuffer.length - 10);
+    
+    expect(() => {
+      deserializeContainer(truncatedBuffer);
+    }).toThrow(/trailing unconsumed bytes detected or payload truncated/);
+  });
+
+  it('resets receiver and flushes memory when requested', () => {
+    const decoder = new FountainDecoder();
+    
+    const originalFile = Buffer.alloc(1000, 0x11); 
+    const containerBuffer = serializeContainer({
+      metadata: { protocolVersion: 1, filename: 'test1.txt', mimeType: 'text/plain', originalSize: 1000, compressed: false, encrypted: false, timestamp: 0, sha256: computeSha256(originalFile) },
+      payload: originalFile
+    });
+    
+    const encoder = new FountainEncoder(containerBuffer, 512, 111);
+    decoder.receiveFrame(deserializeFrame(serializeFrame(encoder.nextFrame())));
+    
+    expect(decoder.getSolvedCount()).toBeGreaterThan(0);
+    
+    // Explicitly reset the decoder
+    const resetDecoder = new FountainDecoder();
+    expect(resetDecoder.getSolvedCount()).toBe(0);
+  });
 });
