@@ -1,21 +1,37 @@
 # DEQR Current Project State
 
-**Current Phase**: Phase 1 — Milestone M1 (Stage 2: Core Pipeline)
-**Last Updated**: 2026-08-06
-**Status**: IN_PROGRESS (M1 Core Pipeline Complete)
+**Current Phase**: Phase 1 — Milestone M1 (Stage 4: Optical Integration)
+**Last Updated**: 2026-08-07
+**Status**: IN_PROGRESS (Awaiting Manual Physical Acceptance)
 
 ## Active Milestone
-Phase 1: Milestone M1. M1 Core Pipeline (`src/core/*`) is implemented and tested. React UI and Electron shell remain deferred to Stage 3.
+Phase 1: Milestone M1. M1 Core Pipeline, UI, and Electron shell have been implemented. The application has been built and packaged as a standalone portable Windows executable. Software evidence gate is passed.
 
 ## Completed Tasks
-- [x] Audited repository state (`init.md` discovered).
-- [x] Initialized canonical `.ai-team/` system (charter, orchestration, capability matrix).
-- [x] Populated project control state & DEQR engineering documentation base.
 - [x] M1 Stage 1: Verified architecture (doctor + drift pass).
-- [x] M1 Stage 1: Upgraded engineering docs (`SECURITY.md`, `ARCHITECTURE.md`, `UI-UX.md`) and recorded ADRs.
-- [x] M1 Stage 2: Initialized Electron/React scaffolding (`package.json`, `tsconfig.json`).
 - [x] M1 Stage 2: Implemented Optical Transfer Core (container, protocol, LT encoder/decoder, SHA-256, compression).
-- [x] M1 Stage 2: Validated core pipeline via loopback integration tests (byte-for-byte exact).
+- [x] M1 Stage 3: Secured Electron desktop shell, restricted preload bridge, React renderer UI.
+- [x] M1 Stage 3.1: Addressed Core security review findings (string/binary conversion patches).
+- [x] M1 Stage 4 Phase 1: Validated independent static image `jsQR` decoding.
+- [x] M1 Stage 4 Phase 2: Integrated React `CameraReceiver` loop with core `FountainDecoder`.
+- [x] M1 Stage 4 Phase 2.1: Enforced strict receiver boundaries and permissions checks.
+- [x] M1 Stage 4 Phase 2.2: Addressed trailing-byte vulnerabilities; explicitly validated 11-point permission security matrix.
+- [x] M1 Stage 4 Validation: Re-verified source-to-artifact traceability, generated standalone `deqr 0.1.0.exe` (SHA256: `1188476DC90032CCCB7492858ADA53F607C1C8A6CEB6FC882C44BAA3F9FF20CF`), and passed 126 loopback/security tests on validation worktree. 
+
+## Defensible Status
+- Stage 4 Phase 1: PASS
+- Stage 4 Phase 2.2 software implementation: PASS
+- Trailing-byte and container canonicality boundary: PASS
+- Permission-policy automated matrix: PASS
+- Automated tests: 126 PASS
+- Patch reproducibility: PASS
+- Authoritative-tree equivalence: PASS
+- Portable Windows artifact: PASS
+- Source-to-artifact traceability: PASS
+- Process-liveness smoke test: PASS
+- Packaged camera lifecycle smoke test: **READY — MANUAL EXECUTION REQUIRED**
+- Physical optical-transfer acceptance: **PENDING**
+- Physical optical-transfer gate: **OPEN**
 
 ## Next Recommended Task
-Milestone M1 Stage 3: Implement the Electron main process (safe file I/O, offline fuses, preload bridge) and React UI views (Dashboard, Send, Active Transfer, Loopback Receive).
+Perform the Manual Packaged Camera Lifecycle Smoke Test using the generated portable executable `release\deqr 0.1.0.exe` to verify UI-level camera permissions, stream toggling, and teardown behavior. After that smoke test passes, perform the real display-to-webcam Physical Optical-Transfer matrix and record results.
