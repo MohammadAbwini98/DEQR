@@ -17,6 +17,7 @@
     "lint": "echo 'lint not configured'",
     "doctor": "node scripts/ai/doctor.js",
     "drift-check": "node scripts/ai/check-adapter-drift.js",
+    "vectors:generate": "npx --yes tsx@4.20.3 scripts/protocol/generate-vectors.ts",
     "test:packaged": "node scripts/ci/verify-packaged-renderer.js",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"

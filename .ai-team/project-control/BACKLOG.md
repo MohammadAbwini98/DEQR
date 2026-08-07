@@ -17,15 +17,17 @@
 | **TSK-026** | Integration Tests & Loopback Verification | High | QA Engineer | PENDING | TSK-023, TSK-024 | Byte-perfect file→encode→decode→verify pipeline, audit log verification. |
 | **TSK-027** | Audit Logging (Metadata Only) | Medium | Back-end Engineer | PENDING | TSK-020 | JSON audit log with transfer metadata, zero payload byte storage verified. |
 
-## Milestone M2: Camera Capture & Full Sender/Receiver (DEFERRED)
+## Milestone M2: Mobile Receiver Target (iOS via .NET MAUI 10)
 
-| Task ID | Title | Priority | Primary Role | Status | Dependencies |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **TSK-030** | Camera Capture & Media Stream Integration | High | Front-end Engineer | DEFERRED | TSK-026 |
-| **TSK-031** | WASM QR Decoding Worker Pool (zxing-wasm) | High | Back-end Engineer | DEFERRED | TSK-026 |
-| **TSK-032** | Transfer History List View | Medium | Front-end Engineer | DEFERRED | TSK-027 |
-| **TSK-033** | Settings Panel | Medium | Front-end Engineer | DEFERRED | TSK-020 |
-| **TSK-034** | Adaptive FPS & QR Density Controls | Medium | Back-end Engineer | DEFERRED | TSK-031 |
+| Task ID | Title | Priority | Primary Role | Status | Dependencies | Acceptance Criteria |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **TSK-060** | Protocol Test Vectors & Parity Generator | Critical | System Architect | COMPLETED | TSK-022 | Deterministic TypeScript generator produces 15 binary vectors + `expected.json`; includes all K=5 systematic frames, repair frames, PRNG/Soliton expectations, malformed vectors; regeneration is byte-identical under CI. |
+| **TSK-061** | `DEQR.Core` C# Engine & Parity Tests | Critical | Back-end Engineer | COMPLETED | TSK-060 | `net10.0` core compiles and passes mandatory container/frame round-trip parity, C# encoder parity, PRNG/Soliton parity, decoder completion, malformed-input rejection, and vector reproducibility in Stage IOS-1 CI. |
+| **TSK-062** | .NET MAUI 10 iOS Application Shell | High | Front-end Engineer | READY | TSK-061 | .NET MAUI solution scaffolded (`mobile/`), iOS privacy declarations (`NSCameraUsageDescription`, Files integration keys), bundle ID `com.mohammadabwini.deqr.receiver`, sandbox directory initialization. |
+| **TSK-063** | AVFoundation Camera & Raw Byte QR Capture | High | Front-end Engineer | PENDING | TSK-062 | AVFoundation native camera pipeline, 720p ROI crop, 15–30 FPS decoding with backpressure frame dropping, raw byte extraction. |
+| **TSK-064** | Mobile Fountain Reassembly & Security Pipeline | High | Back-end Engineer | PENDING | TSK-061, TSK-063 | Full optical stream reassembly loop in C#, strict bounds checking, session isolation, trailing-byte rejection, and integrity verification. |
+| **TSK-065** | iOS Files App Integration & Document Picker | High | Back-end Engineer | PENDING | TSK-064 | Save received files to `/Documents/Received/`, exposed to iOS Files app, plus native document-picker export. |
+| **TSK-066** | Mobile End-to-End Physical Acceptance Matrix | High | QA Engineer | PENDING | TSK-064, TSK-065 | Full Windows screen -> iPhone camera optical transfer test suite (clean stream, frame loss, interruption, lifecycle backgrounding, file integrity). |
 
 ## Security Tranche (DEFERRED)
 
