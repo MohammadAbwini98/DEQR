@@ -17,10 +17,12 @@
     "lint": "echo 'lint not configured'",
     "doctor": "node scripts/ai/doctor.js",
     "drift-check": "node scripts/ai/check-adapter-drift.js",
+    "test:packaged": "node scripts/ci/verify-packaged-renderer.js",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "buffer": "^6.0.3",
     "qrcode": "^1.5.4"
   },
   "build": {
@@ -32,7 +34,10 @@
       "output": "release"
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     }
   },
   "devDependencies": {
@@ -40,6 +45,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "asar": "^3.2.0",
     "canvas": "^3.2.3",
     "electron": "^36.0.0",
     "electron-builder": "^26.15.3",
