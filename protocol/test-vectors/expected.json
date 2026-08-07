@@ -1,0 +1,126 @@
+{
+  "generatedAt": "2026-08-07T17:10:00.000Z",
+  "protocolVersion": 1,
+  "testCases": {
+    "txtContainer": {
+      "file": "container-txt.bin",
+      "sizeBytes": 144,
+      "filename": "hello.txt",
+      "mimeType": "text/plain",
+      "originalSize": 65,
+      "sha256Hex": "f32d62026ba16e8995242d70a834b609c18ae01ce1c7dd1764db87460bff1e49",
+      "timestamp": 1770480000000,
+      "compressed": false,
+      "encrypted": false
+    },
+    "pdfContainer": {
+      "file": "container-pdf.bin",
+      "sizeBytes": 5087,
+      "filename": "document.pdf",
+      "mimeType": "application/pdf",
+      "originalSize": 5000,
+      "sha256Hex": "0c16b5f273d4335b31683c40c72d808651315ecac106ff44c34761f9cf4e850f",
+      "timestamp": 1770480001000,
+      "compressed": false,
+      "encrypted": false
+    },
+    "zipContainer": {
+      "file": "container-zip.bin",
+      "sizeBytes": 20086,
+      "filename": "archive.zip",
+      "mimeType": "application/zip",
+      "originalSize": 20000,
+      "sha256Hex": "1af87c58f87c50b1805a3d55c15bf0deb90fc1f5ea1b575a151dd7adac8bb887",
+      "timestamp": 1770480002000,
+      "compressed": false,
+      "encrypted": false
+    },
+    "fountainStream": {
+      "sessionId": 305419896,
+      "blockSize": 32,
+      "blockCount": 5,
+      "totalPayloadLength": 144,
+      "systematicFrames": [
+        "frame-systematic-001.bin",
+        "frame-systematic-002.bin",
+        "frame-systematic-003.bin",
+        "frame-systematic-004.bin",
+        "frame-systematic-005.bin"
+      ],
+      "repairFrames": [
+        "frame-repair-001.bin",
+        "frame-repair-002.bin"
+      ],
+      "repairExpectations": {
+        "5": {
+          "degree": 4,
+          "neighbors": [
+            3,
+            1,
+            0,
+            2
+          ]
+        },
+        "6": {
+          "degree": 3,
+          "neighbors": [
+            0,
+            3,
+            1
+          ]
+        }
+      }
+    },
+    "prngVectors": {
+      "0": [
+        4043151706,
+        1147597007,
+        3315858022,
+        1538288752,
+        2042435954
+      ],
+      "1": [
+        2693262067,
+        11749833,
+        2265367787,
+        4213581821,
+        4159151403
+      ],
+      "5": [
+        2962560684,
+        3318907087,
+        943874942,
+        2676532661,
+        365661495
+      ],
+      "6": [
+        2258064501,
+        10065456,
+        2848299567,
+        868282189,
+        2328385914
+      ],
+      "305419896": [
+        455919406,
+        4042750857,
+        4036713555,
+        1004527575,
+        3885174651
+      ],
+      "4294967295": [
+        3850105811,
+        813802916,
+        3073704848,
+        4054706436,
+        3630262831
+      ]
+    },
+    "malformedAttackVectors": {
+      "corruptCrcFrame": "corrupt-frame-crc.bin",
+      "truncatedFrame": "truncated-frame.bin",
+      "trailingContainer": "trailing-container.bin",
+      "inconsistentSessionFrame": "inconsistent-session-frame.bin",
+      "oversizedPayloadFrame": "oversized-payload-frame.bin"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+name: Stage IOS-1 Core Gate
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'protocol/test-vectors/**'
+      - 'scripts/protocol/**'
+      - '.github/workflows/ios1-core.yml'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Regenerate authoritative vectors
+        run: npm run vectors:generate
+
+      - name: Verify vector reproducibility
+        run: git diff --exit-code -- protocol/test-vectors
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Show .NET environment
+        run: |
+          dotnet --info
+          dotnet --list-sdks
+
+      - name: Restore C# solution
+        run: dotnet restore mobile/DEQR.Mobile.sln
+
+      - name: Build C# solution
+        run: dotnet build mobile/DEQR.Mobile.sln --configuration Release --no-restore
+
+      - name: Run C# parity tests
+        run: dotnet test mobile/tests/DEQR.Core.Tests/DEQR.Core.Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal"
+
+      - name: Run DEQR AI doctor
+        run: node scripts/ai/doctor.js
