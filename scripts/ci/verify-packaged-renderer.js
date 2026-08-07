@@ -18,12 +18,16 @@ async function verify() {
     ];
 
     for (const f of requiredFiles) {
-      if (!files.includes(f)) {
+      if (!files.some(p => p.replace(/\\/g, '/').endsWith(f))) {
         throw new Error(`Required file ${f} not found in ASAR`);
       }
     }
 
-    const htmlContent = asar.extractFile(asarPath, 'dist/renderer/index.html').toString('utf8');
+    const tempDir = path.join(__dirname, '../../release/temp-asar-verify');
+    const { execSync } = require('child_process');
+    execSync(`npx asar extract "${asarPath}" "${tempDir}"`, { stdio: 'inherit' });
+
+    const htmlContent = fs.readFileSync(path.join(tempDir, 'dist/renderer/index.html'), 'utf8');
     
     // Check asset paths are relative
     if (htmlContent.includes('="/assets/')) {
@@ -35,11 +39,14 @@ async function verify() {
     }
 
     // Check main entry in package.json
-    const packageJsonStr = asar.extractFile(asarPath, 'package.json').toString('utf8');
+    const packageJsonStr = fs.readFileSync(path.join(tempDir, 'package.json'), 'utf8');
     const pkg = JSON.parse(packageJsonStr);
     if (pkg.main !== 'dist/main/index.js') {
       throw new Error(`Invalid package.json main entry: ${pkg.main}`);
     }
+
+    // Clean up
+    fs.rmSync(tempDir, { recursive: true, force: true });
 
     console.log('PASS: Packaged renderer verification');
     process.exit(0);

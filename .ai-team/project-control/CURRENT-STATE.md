@@ -17,7 +17,7 @@ Phase 1: Milestone M1. M1 Core Pipeline, UI, and Electron shell have been implem
 - [x] M1 Stage 4 Phase 2.1: Enforced strict receiver boundaries and permissions checks.
 - [x] M1 Stage 4 Phase 2.2: Addressed trailing-byte vulnerabilities; explicitly validated 11-point permission security matrix.
 - [x] M1 Stage 4 Phase 2.3: Fixed `ERR_MODULE_NOT_FOUND` ESM/CommonJS collision in the packaged Electron `.asar` build process (`tsconfig.main.json`).
-- [x] M1 Stage 4 Validation: Re-verified source-to-artifact traceability, generated standalone `deqr 0.1.0.exe` (SHA256: `42D500ABAC5954CB29E04BEA09F78FC0A4BBA5E2492BE1163A2CFD39D8D91F28`), and passed 126 loopback/security tests on validation worktree. 
+- [x] M1 Stage 4 Validation: Re-verified source-to-artifact traceability, generated standalone `deqr 0.1.0.exe` (SHA256: `C900381C1D77D2220CF93A7A13B93B14B8BA9671E5398F3059019E9504C18D5F`), and passed 126 loopback/security tests on validation worktree. Packaged renderer verification passed via ci script. 
 
 ## Defensible Status
 - Stage 4 Phase 1: PASS
@@ -25,6 +25,12 @@ Phase 1: Milestone M1. M1 Core Pipeline, UI, and Electron shell have been implem
 - Trailing-byte and container canonicality boundary: PASS
 - Permission-policy automated matrix: PASS
 - Automated tests: 126 PASS
+- Portable packaging: PASS
+- Main-process launch: PASS
+- Packaged renderer visual launch: PASS
+- Camera lifecycle smoke test: BLOCKED
+- Physical optical-transfer test: BLOCKED
+- Physical optical-transfer gate: OPEN
 - Patch reproducibility: PASS
 - Authoritative-tree equivalence: PASS
 - Portable Windows artifact: PASS
