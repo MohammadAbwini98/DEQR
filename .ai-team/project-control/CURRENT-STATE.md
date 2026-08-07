@@ -16,11 +16,12 @@ Phase 1: Milestone M1. M1 Core Pipeline, UI, and Electron shell have been implem
 - [x] M1 Stage 4 Phase 2: Integrated React `CameraReceiver` loop with core `FountainDecoder`.
 - [x] M1 Stage 4 Phase 2.1: Enforced strict receiver boundaries and permissions checks.
 - [x] M1 Stage 4 Phase 2.2: Addressed trailing-byte vulnerabilities; explicitly validated 11-point permission security matrix.
-- [x] M1 Stage 4 Validation: Re-verified source-to-artifact traceability, generated standalone `deqr 0.1.0.exe` (SHA256: `1188476DC90032CCCB7492858ADA53F607C1C8A6CEB6FC882C44BAA3F9FF20CF`), and passed 126 loopback/security tests on validation worktree. 
+- [x] M1 Stage 4 Phase 2.3: Fixed `ERR_MODULE_NOT_FOUND` ESM/CommonJS collision in the packaged Electron `.asar` build process (`tsconfig.main.json`).
+- [x] M1 Stage 4 Validation: Re-verified source-to-artifact traceability, generated standalone `deqr 0.1.0.exe` (SHA256: `C67BCF866F14848125E3ABFFD2A5E3467E09F69B0D5D7817B0D7A9570A0310E3`), and passed 126 loopback/security tests on validation worktree. 
 
 ## Defensible Status
 - Stage 4 Phase 1: PASS
-- Stage 4 Phase 2.2 software implementation: PASS
+- Stage 4 Phase 2.3 software implementation: PASS
 - Trailing-byte and container canonicality boundary: PASS
 - Permission-policy automated matrix: PASS
 - Automated tests: 126 PASS
