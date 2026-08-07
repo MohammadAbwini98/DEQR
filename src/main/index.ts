@@ -12,7 +12,7 @@ function createWindow() {
       sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, '../../dist/preload/index.js'),
+      preload: path.join(__dirname, '../preload/index.js'),
     },
     autoHideMenuBar: true,
   });
@@ -94,7 +94,7 @@ function createWindow() {
   });
 
   if (app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   } else {
     // In dev, load Vite
     mainWindow.loadURL('http://localhost:5173');
