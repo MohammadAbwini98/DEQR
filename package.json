@@ -19,6 +19,12 @@
     "drift-check": "node scripts/ai/check-adapter-drift.js",
     "vectors:generate": "npx --yes tsx@4.20.3 scripts/protocol/generate-vectors.ts",
     "test:packaged": "node scripts/ci/verify-packaged-renderer.js",
+    "mobile-web:dev": "vite --config mobile-web/vite.config.ts",
+    "mobile-web:dev:https": "vite --config mobile-web/vite.config.ts",
+    "run:local": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-local.ps1",
+    "mobile-web:typecheck": "tsc -p mobile-web/tsconfig.json --noEmit",
+    "mobile-web:test": "vitest run --config mobile-web/vitest.config.ts",
+    "mobile-web:build": "npm run mobile-web:typecheck && vite build --config mobile-web/vite.config.ts",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },

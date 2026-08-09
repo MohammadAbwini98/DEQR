@@ -1,12 +1,18 @@
 # DEQR Current Project State
 
 **Current Phase**: Phase 1 — Milestone M1 (Stage 4: Optical Integration) + Milestone M2 Mobile Receiver
-**Last Updated**: 2026-08-07
+**Last Updated**: 2026-08-08
 **Status**: IN_PROGRESS
 
+> **PRIMARY ACTIVE WORKSTREAM: WEB-IOS (Mobile Web/PWA Receiver)**
+> **DESKTOP MANUAL ACCEPTANCE: SUSPENDED — RELEASE GATE REMAINS OPEN**
+> Desktop acceptance evidence remains bound to provisional artifact `C399CCC62C9DED16C81C44BDD5BC91E30BF9B48C87492EE8C7B7007105C1CAC3`; no desktop baseline promotion or release declaration is authorized.
+
 ## Active Milestones
-- M1 desktop optical integration remains pending manual packaged camera/physical acceptance.
+- M1 desktop optical integration remains pending manual packaged camera/physical acceptance; its manual gate is temporarily suspended.
 - M2 mobile receiver architecture is authorized by ADR-007. Stage IOS-1 protocol conformance is implemented, independently CI-validated, and merged to `main`.
+- M2 Stage IOS-2 / TSK-062 (.NET MAUI iOS) is **SUPERSEDED, NOT ACTIVE, and preserved for history/reference**. Its Mac/Xcode deployment dependency is unsuitable for the selected distribution model.
+- M2 WEB-IOS is the active workstream: an installable iPhone Safari Web App/PWA. It shares the desktop v1 wire contract through browser-safe TypeScript code and requires no Xcode or native wrapper.
 
 ## Completed Tasks
 - [x] M1 Stage 1: Verified architecture (doctor + drift pass).
@@ -46,7 +52,20 @@
 - Malformed-input rejection coverage: **PASS**
 - AI doctor: **PASS**
 - Stage IOS-1 / TSK-061: **COMPLETED**
-- TSK-062 / IOS-2: **AUTHORIZED / READY TO START**
+- TSK-062 / IOS-2: **IN PROGRESS — SHELL SCAFFOLDED; BUILD/DEVICE VALIDATION BLOCKED BY TOOLCHAIN**
+
+## Web/PWA Status
+- TSK-062 / IOS-2 MAUI: **SUPERSEDED — PRESERVED, NO FURTHER DEVELOPMENT AUTHORIZED**
+- WEB-IOS-1 Architecture + PWA shell: **AUTOMATED PASS**
+- WEB-IOS-2 Offline/installability: **IMPLEMENTED; BROWSER/iPHONE OFFLINE RUNTIME NOT EXECUTED**
+- WEB-IOS-3 Camera subsystem: **PHYSICAL iPHONE CAMERA + RAW QR ACQUISITION OBSERVED; STANDALONE/OFFLINE NOT EXECUTED**
+- WEB-IOS-4 Raw QR byte fidelity: **AUTOMATED PASS**
+- WEB-IOS-5 Protocol integration: **AUTOMATED PASS**
+- WEB-IOS-6 Multi-frame reconstruction: **AUTOMATED PASS**
+- WEB-IOS-7 Integrity + temporary storage: **AUTOMATED PASS**
+- WEB-IOS-8 Browser export: **IMPLEMENTED; PHYSICAL iPHONE NOT EXECUTED**
+- WEB-IOS-9 Desktop/browser interoperability: **AUTOMATED NODE/QR PASS; PHYSICAL iPHONE BLOCKED BY DESKTOP SENDER CONTAINER DEFECT (FIX IMPLEMENTED, RETEST REQUIRED)**
+- WEB-IOS-10 Physical iPhone acceptance: **IN PROGRESS — FIRST PHYSICAL ATTEMPT COLLECTED ALL 166 BLOCKS, THEN REJECTED INVALID RAW-FILE METADATA**
 
 ## Stage IOS-1 Evidence
 - GitHub Actions workflow: `.github/workflows/ios1-core.yml`
@@ -56,5 +75,6 @@
 - PR #2 was normalized to a single commit directly on the renderer-fixed `main` baseline before final CI and merge.
 
 ## Next Recommended Task
-1. Begin **Milestone M2 Stage IOS-2 (TSK-062)**: scaffold the .NET MAUI 10 iOS application shell and Apple privacy/files configuration.
-2. Rebuild the Windows portable executable from current `main`, confirm the renderer visually, then resume the packaged camera lifecycle and desktop physical optical-transfer gates.
+1. Complete WEB-IOS automated protocol/PWA gates and record evidence.
+2. Perform physical Safari and installed-PWA acceptance from a trusted HTTPS origin.
+3. Resume the preserved desktop manual acceptance gates only when desktop work is re-authorized.

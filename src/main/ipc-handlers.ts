@@ -98,7 +98,10 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('loopback:cancel', async (event, sessionId: number) => {
-    const session = globalSessionManager.getSession(sessionId);
+    // A renderer can emit cancel after a completed transfer removed its session.
+    // Cancellation is intentionally idempotent, so this is not an IPC error.
+    const session = globalSessionManager.findSession(sessionId);
+    if (!session) return;
     if (session.activeLoopback) {
       clearInterval(session.activeLoopback.intervalId);
       session.activeLoopback = undefined;

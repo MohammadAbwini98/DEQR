@@ -5,3 +5,7 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+mobile-web/.certs/
+.local-run/
+mobile/.vs/
+*.csproj.user

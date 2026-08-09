@@ -8,7 +8,9 @@ describe('Network Policy Interceptor', () => {
         url.startsWith('devtools:') || 
         url.startsWith('file:') || 
         url.startsWith('data:') || 
-        url.startsWith('http://localhost:5173')
+        url.startsWith('http://localhost:5173') ||
+        url.startsWith('ws://localhost:5173') ||
+        url.startsWith('wss://localhost:5173')
       ) {
         return true;
       }
@@ -16,6 +18,8 @@ describe('Network Policy Interceptor', () => {
     };
 
     expect(isAllowed('http://localhost:5173/assets/index.js')).toBe(true);
+    expect(isAllowed('ws://localhost:5173/?token=local-vite-hmr')).toBe(true);
+    expect(isAllowed('wss://localhost:5173/?token=local-vite-hmr')).toBe(true);
     expect(isAllowed('file:///C:/app/index.html')).toBe(true);
     expect(isAllowed('data:image/png;base64,123')).toBe(true);
     expect(isAllowed('devtools://devtools/bundled/inspector.html')).toBe(true);

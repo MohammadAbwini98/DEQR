@@ -3,6 +3,10 @@ import * as path from 'path';
 import { registerIpcHandlers } from './ipc-handlers';
 
 function createWindow() {
+  const contentSecurityPolicy = app.isPackaged
+    ? "default-src 'self' 'unsafe-inline' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    : "default-src 'self' 'unsafe-inline' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:5173; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
   const mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
@@ -22,10 +26,38 @@ function createWindow() {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"]
+        'Content-Security-Policy': [contentSecurityPolicy]
       }
     });
   });
+
+  if (!app.isPackaged) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('Desktop renderer loaded: http://localhost:5173/');
+
+      setTimeout(() => {
+        void mainWindow.webContents.executeJavaScript(`
+          JSON.stringify({
+            rootHtml: document.getElementById('root')?.innerHTML ?? null,
+            rootText: document.getElementById('root')?.innerText ?? null,
+            resources: performance.getEntriesByType('resource').map((entry) => entry.name),
+          })
+        `).then((state) => {
+          console.log(`Desktop renderer state: ${state}`);
+        }).catch((error) => {
+          console.error(`Desktop renderer state probe failed: ${error.message}`);
+        });
+      }, 1_500);
+    });
+
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+      console.error(`Desktop renderer load failed (main frame: ${isMainFrame}): ${validatedUrl} (${errorCode}: ${errorDescription})`);
+    });
+
+    mainWindow.webContents.on('console-message', (event) => {
+      console.error(`Desktop renderer console [${event.level}] ${event.sourceId}:${event.lineNumber} ${event.message}`);
+    });
+  }
 
   // Navigation Denial
   mainWindow.webContents.on('will-navigate', (e) => {
@@ -84,7 +116,11 @@ function createWindow() {
       url.startsWith('devtools:') || 
       url.startsWith('file:') || 
       url.startsWith('data:') || 
-      url.startsWith('http://localhost:5173')
+      url.startsWith('http://localhost:5173') ||
+      // Vite's development HMR transport is local-only; keep production
+      // network denial unchanged.
+      url.startsWith('ws://localhost:5173') ||
+      url.startsWith('wss://localhost:5173')
     ) {
       callback({ cancel: false });
     } else {

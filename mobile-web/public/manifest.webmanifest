@@ -1,0 +1,11 @@
+{
+  "name": "DEQR Receive",
+  "short_name": "DEQR",
+  "description": "Offline optical file receiver for DEQR animated QR transfers.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f141c",
+  "theme_color": "#0f141c",
+  "icons": [{ "src": "./icons/deqr.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

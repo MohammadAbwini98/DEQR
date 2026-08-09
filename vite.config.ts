@@ -17,4 +17,9 @@ export default defineConfig({
       '@renderer': path.resolve(__dirname, 'src/renderer'),
     },
   },
+  optimizeDeps: {
+    // The renderer installs this browser-safe Buffer shim before importing the
+    // protocol modules. Pin it so Vite never serves a stale optimized URL.
+    include: ['buffer'],
+  },
 });

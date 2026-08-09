@@ -6,6 +6,7 @@ import { sanitizeFilename, isBlockedExtension } from '../core/filename-sanitizer
 import { ErrorCode, DeqrError } from '../shared/errors';
 import { SafeDisplayMetadata } from '../shared/types';
 import { FountainEncoder } from '../core/fountain-encoder';
+import { PROTOCOL_VERSION, serializeContainer } from '../core/container';
 
 export interface SessionState {
   id: number;
@@ -58,9 +59,10 @@ export class SessionManager {
       throw new DeqrError(ErrorCode.FILE_TYPE_BLOCKED, 'File extension is blocked by security policy');
     }
 
-    // Read full payload to compute SHA and prepare for core
-    const payload = fs.readFileSync(filepath);
-    const sha256 = computeSha256(payload);
+    // The fountain stream transports a complete DEQR container, never the raw
+    // source file. Receivers need this metadata to validate and safely save it.
+    const sourcePayload = fs.readFileSync(filepath);
+    const sha256 = computeSha256(sourcePayload);
     
     // In a real implementation, we would try to compress here and check if it's beneficial.
     // For M1, we skip compression to keep the flow simple, but report it.
@@ -74,6 +76,20 @@ export class SessionManager {
       sha256: sha256.toString('hex'),
       compressed: false
     };
+
+    const payload = serializeContainer({
+      metadata: {
+        protocolVersion: PROTOCOL_VERSION,
+        filename: sanitizedName,
+        mimeType: metadata.mimeType,
+        originalSize: sourcePayload.length,
+        compressed: false,
+        encrypted: false,
+        timestamp: Date.now(),
+        sha256,
+      },
+      payload: sourcePayload,
+    });
 
     this.sessions.set(sessionId, {
       id: sessionId,
@@ -91,6 +107,12 @@ export class SessionManager {
       throw new DeqrError(ErrorCode.SESSION_NOT_FOUND, 'Session not found or expired');
     }
     return session;
+  }
+
+  /** Returns an active session when present without treating an already-cancelled
+   * session as an error. This is appropriate for idempotent UI cancellation. */
+  public findSession(sessionId: number): SessionState | undefined {
+    return this.sessions.get(sessionId);
   }
 
   public removeSession(sessionId: number) {

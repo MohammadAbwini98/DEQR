@@ -75,3 +75,13 @@
   7. Offline Policy: Zero remote network calls (`http`, `https`, `ws`, `wss`, `Bonjour`, `analytics`, `telemetry`).
   8. Signing & Distribution: Free Personal Team / Apple Account local development signing with Developer Mode enabled on the test device.
 - **Consequences**: Single C# core codebase reusable for future Android receiver targets. Direct native access to AVFoundation and iOS Files picker. Requires Pair to Mac / Xcode setup on Mac host during iOS compilation. Groundwork laid for Milestone M2.
+
+---
+
+## ADR-008 / DEQR-ADR-MOBILE-002: Installable Safari Web App/PWA Receiver
+
+- **Date**: 2026-08-08
+- **Status**: APPROVED
+- **Context**: The MAUI iOS route requires Mac/Xcode for build/deployment. The selected development and installation model is Safari > Share > Add to Home Screen > Open as Web App on a physical iPhone.
+- **Decision**: Supersede MAUI as the active receiver implementation. Preserve `mobile/` as historical/reference material and implement the active receiver in `mobile-web/` as a standalone installable PWA. The browser receiver uses raw `Uint8Array` QR decoder output, a browser-safe implementation of the desktop v1 DEQR frame/container/fountain contract, Web Crypto SHA-256, bounded in-memory temporary storage, and Web Share/download export. It contains no backend, telemetry, CDN, or transfer upload path.
+- **Consequences**: Native MAUI/AVFoundation behavior and IPA deployment are out of the active scope. Initial PWA installation/update requires a trusted HTTPS origin; subsequent cached optical transfer is designed to be offline. Physical iPhone Safari and installed-PWA validation are mandatory release gates and cannot be inferred from desktop browser tests.

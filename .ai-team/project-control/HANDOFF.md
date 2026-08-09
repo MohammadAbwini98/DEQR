@@ -1,11 +1,17 @@
 # DEQR Session Handoff
 
 ## Current Status
-- **Date**: 2026-08-07
-- **Milestone**: DEQR-M2 Stage IOS-1 (Protocol Conformance & Test Vector Parity)
-- **Status**: PASSED / MERGED TO MAIN
+- **Date**: 2026-08-08
+- **Milestone**: DEQR-M2 WEB-IOS (Safari PWA receiver)
+- **Status**: IMPLEMENTED/AUTOMATED VALIDATION PASS — FIRST PHYSICAL iPHONE ATTEMPT FOUND A SENDER DEFECT; FIX IMPLEMENTED, RETEST REQUIRED
 
 ## Summary of Recent Work
+- ADR-008 supersedes MAUI as the active receiver strategy. The existing `mobile/` MAUI sources are **SUPERSEDED, NOT ACTIVE, and preserved for history/reference**; do not delete or extend them.
+- The active receiver is `mobile-web/`: a standalone Safari PWA with a locally bundled shell/service worker, user-initiated camera controller, jsQR worker returning raw `Uint8Array`, browser-safe desktop-v1 frame/container/fountain decoding, SHA-256 verification before export, and Web Share/download fallback.
+- The first physical iPhone scan showed the camera active and collected 166/166 unique source blocks with zero duplicates, then failed container validation: `INVALID_METADATA: magic is not valid UTF-8`. Source inspection showed `SessionManager.selectFile` passed raw source bytes to the desktop fountain encoder instead of a DEQR v1 container. The active worktree now wraps every selected file with `serializeContainer`; a session-manager regression test deserializes the queued payload. Physical retest is mandatory before any interoperability pass claim.
+- The terminal's `ws://localhost:5173` warning was Vite's local development HMR websocket. It is now explicitly allowed only for localhost:5173. `loopback:cancel` after cleanup is now idempotent rather than logging `SESSION_NOT_FOUND`.
+- `RUN-LOCAL.md` contains the verified command sequence for the Electron sender and the PWA. `npm.cmd test` passed: 13 files / 127 tests. `npm.cmd run mobile-web:test` passed: 3 files / 13 tests. `npm.cmd run mobile-web:build`, `npm.cmd run typecheck`, and AI doctor (0 warnings) passed.
+- Installed-PWA launch, offline behavior, Share/Save, hash verification, and corrected desktop-to-iPhone physical optical reconstruction remain **NOT EXECUTED**. A trusted HTTPS origin is required for the relevant iPhone tests.
 - ADR-007 (`DEQR-ADR-MOBILE-001`) remains the approved architecture: C# + .NET MAUI 10, iOS first, raw DEQR binary QR transport, AVFoundation camera layer, strict offline operation.
 - Deterministic TypeScript vector generator produces **15 binary vectors plus `expected.json`**.
 - Golden coverage includes three containers, five systematic K=5 frames, two repair frames, checksum/truncation/trailing-container attacks, inconsistent-session input, and oversized-payload declaration.
@@ -20,14 +26,12 @@
 - PR #2 `feat(mobile): Stage IOS-1 protocol parity and .NET 10 core gate` — normalized to the current `main` baseline, final CI passed, then **MERGED** as `3aaf0bc0b3ced96863dcbdd7a4fbb42ea8b11b65`.
 
 ## Next Session Focus
-- **Milestone**: DEQR-M2 Stage IOS-2 / TSK-062 (.NET MAUI 10 iOS Shell)
-- **Status**: READY
+- **Milestone**: DEQR-M2 WEB-IOS physical PWA acceptance
+- **Status**: BLOCKED BY EXTERNAL HTTPS/iPHONE ACTION
 - **Tasks**:
-  1. Scaffold `mobile/src/DEQR.Mobile/` as a .NET MAUI 10 application.
-  2. Configure bundle ID `com.mohammadabwini.deqr.receiver`.
-  3. Add `NSCameraUsageDescription`; do not request microphone, location, Bluetooth, local-network, or tracking permissions.
-  4. Configure Files integration (`UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace`) and `/Documents/Received/` initialization.
-  5. Establish the iOS build/signing path using Xcode/Personal Team on the paired Mac before AVFoundation work begins.
+1. Start the corrected desktop sender and PWA using `RUN-LOCAL.md` from `D:\Projects\DEQR-ios2`.
+2. Re-run the same transfer and verify completion, SHA-256, and saved-file bytes on the iPhone.
+3. Serve `mobile-web/` from a trusted HTTPS origin, install it using Safari > Share > Add to Home Screen > Open as Web App, then run standalone/offline/export evidence.
 
 ## Still Open Outside M2
 - The renderer blank-screen source fix is merged, but a new Windows portable executable must be rebuilt from current `main` and visually verified.
