@@ -16,6 +16,7 @@
 | **TSK-025** | Test Fixtures & Unit Tests | High | QA Engineer | PENDING | TSK-022 | Reproducible binary fixtures, 19+ unit test cases covering container/protocol/fountain/hash/compression. |
 | **TSK-026** | Integration Tests & Loopback Verification | High | QA Engineer | PENDING | TSK-023, TSK-024 | Byte-perfect file→encode→decode→verify pipeline, audit log verification. |
 | **TSK-027** | Audit Logging (Metadata Only) | Medium | Back-end Engineer | PENDING | TSK-020 | JSON audit log with transfer metadata, zero payload byte storage verified. |
+| **TSK-028** | Desktop Renderer Accessibility & Interaction Remediation | High | Front-end Engineer | COMPLETED (RETEST OPEN) | TSK-023, TSK-024 | Semantic landmarks and ARIA labelling across renderer views, no blocking `alert()` dialogs, explicit camera-start consent, keyboard-reachable cancel confirmation, DPR-correct QR rasterization, and no duplicated native window header. |
 
 ## Milestone M2: Mobile Receiver Target (iOS via .NET MAUI 10)
 
