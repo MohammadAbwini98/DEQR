@@ -159,8 +159,14 @@ button.danger:hover {
 }
 
 .action-card span {
-  color: var(--text-secondary);
   line-height: 1.4;
+}
+
+/* The primary card is painted with the bright accent gradient, so its
+   description must keep the button's dark foreground. The muted secondary
+   colour is only legible against the dark panel background. */
+.action-card:not(.primary) span {
+  color: var(--text-secondary);
 }
 
 .metadata-grid,
