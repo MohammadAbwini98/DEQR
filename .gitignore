@@ -2,6 +2,9 @@ node_modules/
 dist/
 out/
 build/
+release/
+release-audit/
+.codex/
 *.log
 .DS_Store
 Thumbs.db
