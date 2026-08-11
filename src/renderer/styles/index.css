@@ -10,7 +10,7 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  user-select: none;
+  min-width: 320px;
 }
 
 button {
@@ -35,8 +35,8 @@ button:focus-visible {
 }
 
 button.primary {
-  background: var(--accent-primary);
-  color: white;
+  background: var(--deqr-gradient-primary);
+  color: #06121d;
   border: none;
 }
 
@@ -60,9 +60,18 @@ button.danger:hover {
   height: 38px;
   background: var(--bg-secondary);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-color);
+}
+
+.titlebar-title {
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
 }
 
 .titlebar-controls {
@@ -119,4 +128,160 @@ button.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.dashboard-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.action-card {
+  min-height: 148px;
+  padding: 20px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+}
+
+.action-card:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.action-card strong,
+.action-card span {
+  display: block;
+}
+
+.action-card strong {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.action-card span {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.metadata-grid,
+.stats-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 16px;
+  text-align: left;
+}
+
+.metadata-grid dt {
+  color: var(--text-secondary);
+}
+
+.metadata-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.transfer-surface {
+  width: min(100%, 720px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qr-quiet-zone {
+  width: min(100%, 544px);
+  padding: clamp(16px, 4vw, 32px);
+  background: #ffffff;
+  border-radius: var(--radius-md);
+}
+
+.qr-canvas-frame {
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.qr-canvas-frame canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+}
+
+.camera-surface {
+  position: relative;
+  width: min(100%, 720px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #000;
+  border-radius: var(--radius-md);
+}
+
+.camera-surface canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.camera-alignment-guide {
+  position: absolute;
+  inset: 20%;
+  border: 2px dashed rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+
+.status-message {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.status-message.error {
+  color: var(--status-error-text);
+  border-color: var(--accent-danger);
+}
+
+.status-message.success {
+  color: var(--status-success-text);
+  border-color: var(--accent-success);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 10;
+}
+
+.dialog {
+  width: min(100%, 420px);
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 16px;
+    justify-content: flex-start;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  .dashboard-actions {
+    grid-template-columns: 1fr;
+  }
 }

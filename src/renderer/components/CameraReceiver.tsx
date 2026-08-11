@@ -24,6 +24,8 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
   const [receivedFrames, setReceivedFrames] = useState(0);
   const [recoveredBlocks, setRecoveredBlocks] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCaptureActive, setIsCaptureActive] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<'checking' | 'ready' | 'active' | 'denied' | 'unavailable' | 'error'>('checking');
 
   // Initialize Worker and MediaDevices
   useEffect(() => {
@@ -40,9 +42,12 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
       const videoDevices = devices.filter(d => d.kind === 'videoinput');
       setCameras(videoDevices);
       if (videoDevices.length > 0) {
-        setSelectedCameraId(videoDevices[videoDevices.length - 1].deviceId); // Prefer back camera (often last)
+        setSelectedCameraId(videoDevices[videoDevices.length - 1].deviceId);
+        setCameraStatus('ready');
+      } else {
+        setCameraStatus('unavailable');
       }
-    }).catch(err => console.error('Enumerate devices failed:', err));
+    }).catch(() => setCameraStatus('error'));
 
     return () => {
       if (workerRef.current) {
@@ -54,9 +59,9 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
     };
   }, []);
 
-  // Handle stream initialization when camera changes
+  // Acquire the camera only after the person explicitly starts reception.
   useEffect(() => {
-    if (!selectedCameraId && cameras.length > 0) return;
+    if (!isCaptureActive || !selectedCameraId) return;
 
     let currentStream: MediaStream | null = null;
     
@@ -73,18 +78,18 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
         
         if (videoRef.current) {
           videoRef.current.srcObject = currentStream;
-          videoRef.current.play();
+          await videoRef.current.play();
         }
+        setCameraStatus('active');
       } catch (err: any) {
         if (err.name === 'NotAllowedError') {
-          console.error('Camera permission denied.');
-          alert('Camera permission is required to receive transfers.');
+          setCameraStatus('denied');
         } else if (err.name === 'NotFoundError') {
-          console.error('No camera found.');
-          alert('No compatible camera was found.');
+          setCameraStatus('unavailable');
         } else {
-          console.error('Failed to start camera:', err);
+          setCameraStatus('error');
         }
+        setIsCaptureActive(false);
       }
     };
     
@@ -102,7 +107,7 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
         videoRef.current.srcObject = null;
       }
     };
-  }, [selectedCameraId, cameras.length]);
+  }, [isCaptureActive, selectedCameraId]);
 
   const handleFrameDecoded = useCallback((binaryData: Uint8Array) => {
     try {
@@ -128,9 +133,15 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
     }
   }, [onVerified]);
 
+  const stopCapture = () => {
+    setIsProcessing(false);
+    setIsCaptureActive(false);
+    setCameraStatus((currentStatus) => currentStatus === 'active' ? 'ready' : currentStatus);
+  };
+
   // Main capture loop
   const captureLoop = useCallback(() => {
-    if (videoRef.current && canvasRef.current && !isProcessing) {
+    if (isCaptureActive && videoRef.current && canvasRef.current && !isProcessing) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
@@ -156,7 +167,7 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
     }
     
     animationRef.current = requestAnimationFrame(captureLoop);
-  }, [isProcessing]);
+  }, [isCaptureActive, isProcessing]);
 
   useEffect(() => {
     animationRef.current = requestAnimationFrame(captureLoop);
@@ -164,27 +175,39 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
   }, [captureLoop]);
 
   return (
-    <div className="card" style={{ alignItems: 'center' }}>
-      <h2>Receive Transfer</h2>
+    <section className="card" aria-labelledby="receive-title">
+      <h2 id="receive-title">Receive Transfer</h2>
+      <p style={{ color: 'var(--text-secondary)' }}>
+        Start the camera only when you are ready to scan a local DEQR QR stream.
+      </p>
       
       {cameras.length > 1 && (
-        <select 
-          value={selectedCameraId} 
-          onChange={(e) => setSelectedCameraId(e.target.value)}
-          style={{ marginBottom: '16px', padding: '8px' }}
-        >
-          {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label || 'Camera'}</option>)}
-        </select>
+        <label>
+          Camera
+          <select
+            value={selectedCameraId}
+            onChange={(e) => setSelectedCameraId(e.target.value)}
+            disabled={isCaptureActive}
+            style={{ display: 'block', marginTop: '6px', padding: '8px' }}
+          >
+            {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label || 'Camera'}</option>)}
+          </select>
+        </label>
       )}
 
-      <div style={{ position: 'relative', width: '100%', maxWidth: '640px', background: '#000', borderRadius: '8px', overflow: 'hidden' }}>
-        <video ref={videoRef} playsInline muted style={{ display: 'none' }}></video>
-        <canvas ref={canvasRef} style={{ width: '100%', display: 'block' }}></canvas>
-        {/* Alignment Overlay */}
-        <div style={{ 
-          position: 'absolute', top: '20%', left: '20%', right: '20%', bottom: '20%', 
-          border: '2px dashed rgba(255, 255, 255, 0.5)', pointerEvents: 'none' 
-        }}></div>
+      <div className="camera-surface" aria-label="Camera preview and QR alignment area">
+        <video ref={videoRef} playsInline muted aria-hidden="true" style={{ display: 'none' }}></video>
+        <canvas ref={canvasRef} aria-label="Live camera preview"></canvas>
+        <div className="camera-alignment-guide" aria-hidden="true"></div>
+      </div>
+
+      <div className={`status-message${cameraStatus === 'denied' || cameraStatus === 'unavailable' || cameraStatus === 'error' ? ' error' : ''}`} role={cameraStatus === 'denied' || cameraStatus === 'unavailable' || cameraStatus === 'error' ? 'alert' : 'status'}>
+        {cameraStatus === 'checking' && 'Checking for an available camera…'}
+        {cameraStatus === 'ready' && 'Camera is ready. Select Start Camera to begin capture.'}
+        {cameraStatus === 'active' && 'Camera capture is active. Keep the sender QR inside the alignment guide.'}
+        {cameraStatus === 'denied' && 'Camera access was denied. Allow camera access in system settings, then try again.'}
+        {cameraStatus === 'unavailable' && 'No compatible camera is available.'}
+        {cameraStatus === 'error' && 'The camera could not be started. Check the camera and try again.'}
       </div>
       
       <div style={{ width: '100%', marginTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
@@ -196,9 +219,16 @@ export default function CameraReceiver({ onCancel, onVerified }: Props) {
         </div>
       </div>
 
-      <div style={{ marginTop: '16px', width: '100%' }}>
+      <div className="button-row">
+        {!isCaptureActive ? (
+          <button className="primary" onClick={() => setIsCaptureActive(true)} disabled={!selectedCameraId || cameraStatus === 'unavailable'}>
+            Start Camera
+          </button>
+        ) : (
+          <button onClick={stopCapture}>Stop Camera</button>
+        )}
         <button className="danger" onClick={onCancel}>Cancel Reception</button>
       </div>
-    </div>
+    </section>
   );
 }

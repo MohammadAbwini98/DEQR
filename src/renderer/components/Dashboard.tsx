@@ -9,36 +9,34 @@ interface Props {
 
 export default function Dashboard({ onSelectFile, onReceiveFile, isSelecting, error }: Props) {
   return (
-    <div className="card" style={{ textAlign: 'center' }}>
-      <h1>DEQR Optical Transfer</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-        Select a file up to 64MB to begin an air-gapped optical transfer.
-      </p>
-      
-      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-        <button 
-          className="primary" 
-          style={{ padding: '16px 32px', fontSize: '18px' }} 
-          onClick={onSelectFile}
-          disabled={isSelecting}
-        >
-          {isSelecting ? 'Opening...' : 'Send File'}
-        </button>
+    <section className="card" aria-labelledby="dashboard-title">
+      <div>
+        <h1 id="dashboard-title">DEQR Optical Transfer</h1>
+        <p style={{ color: 'var(--text-secondary)', marginTop: '8px' }}>
+          Transfer files offline using an optical QR stream.
+        </p>
+      </div>
 
-        <button 
-          className="secondary" 
-          style={{ padding: '16px 32px', fontSize: '18px' }} 
-          onClick={onReceiveFile}
-        >
-          Receive File
+      <div className="dashboard-actions">
+        <button className="action-card primary" onClick={onSelectFile} disabled={isSelecting}>
+          <strong>{isSelecting ? 'Opening file picker…' : 'Send File'}</strong>
+          <span>Select a permitted file up to 64 MB and start an optical transfer.</span>
+        </button>
+        <button className="action-card" onClick={onReceiveFile}>
+          <strong>Receive File</strong>
+          <span>Use a local camera to decode a DEQR transfer and verify its integrity.</span>
         </button>
       </div>
 
       {error && (
-        <div style={{ marginTop: '16px', color: 'var(--accent-danger)', padding: '12px', border: '1px solid var(--accent-danger)', borderRadius: 'var(--radius-md)' }}>
+        <div className="status-message error" role="alert">
           {error}
         </div>
       )}
-    </div>
+
+      <footer style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+        DEQR 0.1.0 · Offline mode · Ready for a local transfer
+      </footer>
+    </section>
   );
 }

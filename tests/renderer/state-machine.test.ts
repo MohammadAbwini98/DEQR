@@ -47,4 +47,13 @@ describe('App State Machine', () => {
     sm.transition('CANCEL');
     expect(sm.getState()).toBe('idle');
   });
+
+  it('allows a receive session to be cancelled back to a safe idle state', () => {
+    const sm = new AppStateMachine();
+    sm.transition('START_RECEIVE');
+    expect(sm.getState()).toBe('receive-camera');
+
+    sm.transition('CANCEL');
+    expect(sm.getState()).toBe('idle');
+  });
 });

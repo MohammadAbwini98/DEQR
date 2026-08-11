@@ -6,6 +6,9 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
+    // The renderer provides the complete accessible title bar and window
+    // controls. Keeping Electron's native frame would render a second header.
+    frame: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
