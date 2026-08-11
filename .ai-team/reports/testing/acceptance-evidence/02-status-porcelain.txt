@@ -1,0 +1,62 @@
+﻿ M .ai-team/engineering/ARCHITECTURE.md
+ M .ai-team/engineering/TESTING.md
+ M .ai-team/project-control/ASSIGNMENTS.json
+ M .ai-team/project-control/BACKLOG.md
+ M .ai-team/project-control/CURRENT-STATE.md
+ M .ai-team/project-control/DECISIONS.md
+ M .ai-team/project-control/HANDOFF.md
+ M .ai-team/project-control/KNOWN-ISSUES.md
+ M .ai-team/project-control/RISKS.md
+ M .ai-team/project-control/TASK-LOG.md
+ M RUN-LOCAL.md
+ M mobile-web/index.html
+ M mobile-web/public/manifest.webmanifest
+ M mobile-web/src/App.tsx
+ M mobile-web/src/camera.ts
+ M mobile-web/src/decoder.ts
+ M mobile-web/src/decoder.worker.ts
+ M mobile-web/src/protocol.ts
+ M mobile-web/src/styles.css
+ M mobile-web/tests/protocol.test.ts
+ M mobile-web/tests/pwa-assets.test.ts
+ M mobile-web/vite.config.ts
+ M package.json
+ M scripts/run-local.ps1
+ M src/main/index.ts
+ M src/main/ipc-handlers.ts
+ M src/main/session-manager.ts
+ M src/renderer/App.tsx
+ M src/renderer/components/CameraReceiver.tsx
+ M src/renderer/components/Dashboard.tsx
+ M src/renderer/components/LoopbackView.tsx
+ M src/renderer/components/QRCanvas.tsx
+ M src/renderer/index.tsx
+ M src/renderer/styles/index.css
+ M src/renderer/styles/theme.css
+ M src/shared/types.ts
+ M tests/main/network-policy.test.ts
+ M vite.config.ts
+?? .ai-team/project-control/WEB-IOS-TRACEABILITY.md
+?? .ai-team/reports/design/
+?? .ai-team/reports/security/
+?? .ai-team/reports/testing/
+?? mobile-web/public/icons/apple-touch-icon-180.png
+?? mobile-web/public/icons/deqr-16.png
+?? mobile-web/public/icons/deqr-192.png
+?? mobile-web/public/icons/deqr-32.png
+?? mobile-web/public/icons/deqr-512.png
+?? mobile-web/public/icons/deqr-64.png
+?? mobile-web/tests/accessibility-and-design-contract.test.ts
+?? mobile-web/tests/camera-controller.test.ts
+?? mobile-web/tests/receiver-lifecycle-and-limits.test.ts
+?? mobile-web/tests/serialized-frame-qr-fidelity.test.ts
+?? scripts/bench/
+?? src/main/development-request-policy.ts
+?? src/renderer/app-model.ts
+?? src/renderer/camera-model.ts
+?? tests/integration/
+?? tests/main/package-security-contract.test.ts
+?? tests/main/receive-handler.test.ts
+?? tests/main/session-manager-capacity.test.ts
+?? tests/renderer/app-model.test.ts
+?? tests/renderer/camera-model.test.ts

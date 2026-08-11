@@ -1,0 +1,5 @@
+﻿
+> deqr@0.1.0 test:packaged
+> node scripts/ci/verify-packaged-renderer.js
+
+PASS: Packaged renderer verification

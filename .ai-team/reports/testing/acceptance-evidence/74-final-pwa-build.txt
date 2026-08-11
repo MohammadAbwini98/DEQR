@@ -1,0 +1,18 @@
+﻿
+> deqr@0.1.0 mobile-web:build
+> npm run mobile-web:typecheck && vite build --config mobile-web/vite.config.ts
+
+
+> deqr@0.1.0 mobile-web:typecheck
+> tsc -p mobile-web/tsconfig.json --noEmit
+
+vite v6.4.3 building for production...
+transforming...
+✓ 33 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                           1.37 kB │ gzip:  0.60 kB
+dist/assets/decoder.worker-B2CNXj5F.js  131.03 kB
+dist/assets/index-BR2lBumD.css            9.47 kB │ gzip:  3.00 kB
+dist/assets/index-DEDuaxuQ.js           222.28 kB │ gzip: 69.76 kB
+✓ built in 1.28s

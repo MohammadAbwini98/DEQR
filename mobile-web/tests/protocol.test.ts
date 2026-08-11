@@ -41,4 +41,40 @@ describe('DEQR mobile-web receiver protocol', () => {
   it('decompresses a desktop-compatible gzip container within its declared output bound', async () => {
     const source = Uint8Array.from({ length: 1024 }, (_, i) => i % 7); const container = serializeContainer({ metadata: { protocolVersion: 1, filename: 'compressed.bin', mimeType: 'application/octet-stream', originalSize: source.length, compressed: true, encrypted: false, timestamp: 0, sha256: computeSha256(Buffer.from(source)) }, payload: gzipSync(source) }); const encoder = new FountainEncoder(container, 512, 42); const receiver = new ReceiverSession(); for (let i = 0; i < 8; i++) receiver.receive(new Uint8Array(serializeFrame(encoder.nextFrame()))); const result = await receiver.verify(); expect(result.state).toBe('COMPLETE'); expect(result.verified?.bytes).toEqual(source);
   });
+
+  it('rejects a reconstructed container with a blocked received-file extension', async () => {
+    const encoder = transfer(Uint8Array.of(1, 2, 3), 'untrusted.CmD');
+    const receiver = new ReceiverSession();
+    for (let i = 0; i < encoder.getBlockCount(); i++) receiver.receive(new Uint8Array(serializeFrame(encoder.nextFrame())));
+
+    const result = await receiver.verify();
+    expect(result.state).toBe('FAILED');
+    expect(result.error?.code).toBe('FILE_TYPE_BLOCKED');
+    expect(result.verified).toBeUndefined();
+  });
+
+  it('rejects gzip data that expands beyond its declared output size before completion', async () => {
+    const expanded = Uint8Array.from({ length: 16 * 1024 }, () => 0x41);
+    const container = serializeContainer({
+      metadata: {
+        protocolVersion: 1,
+        filename: 'declared-small.bin',
+        mimeType: 'application/octet-stream',
+        originalSize: 512,
+        compressed: true,
+        encrypted: false,
+        timestamp: 0,
+        sha256: computeSha256(Buffer.from(expanded)),
+      },
+      payload: gzipSync(expanded),
+    });
+    const encoder = new FountainEncoder(container, 512, 43);
+    const receiver = new ReceiverSession();
+    for (let i = 0; i < encoder.getBlockCount(); i++) receiver.receive(new Uint8Array(serializeFrame(encoder.nextFrame())));
+
+    const result = await receiver.verify();
+    expect(result.state).toBe('FAILED');
+    expect(result.error?.code).toBe('SIZE_MISMATCH');
+    expect(result.verified).toBeUndefined();
+  });
 });

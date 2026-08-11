@@ -1,0 +1,4 @@
+﻿
+> deqr@0.1.0 mobile-web:typecheck
+> tsc -p mobile-web/tsconfig.json --noEmit
+

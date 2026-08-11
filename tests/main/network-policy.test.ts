@@ -1,31 +1,58 @@
-import { describe, it, expect, vi } from 'vitest';
-// We just need to verify the logic of the network blocker.
+import { describe, expect, it } from 'vitest';
+import {
+  isAllowedDesktopDevelopmentRequest,
+  isAllowedLocalRendererResource,
+  isAllowedRendererRequest,
+  isDesktopDevelopmentOrigin,
+} from '../../src/main/development-request-policy';
 
-describe('Network Policy Interceptor', () => {
-  it('blocks external URLs', () => {
-    const isAllowed = (url: string) => {
-      if (
-        url.startsWith('devtools:') || 
-        url.startsWith('file:') || 
-        url.startsWith('data:') || 
-        url.startsWith('http://localhost:5173') ||
-        url.startsWith('ws://localhost:5173') ||
-        url.startsWith('wss://localhost:5173')
-      ) {
-        return true;
-      }
-      return false;
-    };
+describe('development request policy', () => {
+  it('allows only the exact desktop loopback origin', () => {
+    for (const url of [
+      'http://localhost:5173/',
+      'http://127.0.0.1:5173/assets/index.js',
+      'http://[::1]:5173/@vite/client',
+    ]) {
+      expect(isDesktopDevelopmentOrigin(url), url).toBe(true);
+    }
 
-    expect(isAllowed('http://localhost:5173/assets/index.js')).toBe(true);
-    expect(isAllowed('ws://localhost:5173/?token=local-vite-hmr')).toBe(true);
-    expect(isAllowed('wss://localhost:5173/?token=local-vite-hmr')).toBe(true);
-    expect(isAllowed('file:///C:/app/index.html')).toBe(true);
-    expect(isAllowed('data:image/png;base64,123')).toBe(true);
-    expect(isAllowed('devtools://devtools/bundled/inspector.html')).toBe(true);
-    
-    expect(isAllowed('https://google.com')).toBe(false);
-    expect(isAllowed('http://malicious.com')).toBe(false);
-    expect(isAllowed('ws://websocket.org')).toBe(false);
+    for (const url of [
+      'http://localhost:5174/',
+      'https://localhost:5173/',
+      'http://localhost.evil.test:5173/',
+      'http://localhost:5173@evil.test/',
+      'http://user:password@localhost:5173/',
+      'http://[::1]:5174/',
+    ]) {
+      expect(isDesktopDevelopmentOrigin(url), url).toBe(false);
+    }
+  });
+
+  it('allows only the exact local Vite HTTP and HMR WebSocket requests', () => {
+    expect(isAllowedDesktopDevelopmentRequest('http://localhost:5173/index.tsx')).toBe(true);
+    expect(isAllowedDesktopDevelopmentRequest('ws://localhost:5173/?token=local-vite-hmr')).toBe(true);
+
+    for (const url of [
+      'wss://localhost:5173/',
+      'ws://localhost:5174/',
+      'ws://localhost:5173@evil.test/',
+      'ws://user@localhost:5173/',
+      'http://localhost.evil.test:5173/',
+    ]) {
+      expect(isAllowedDesktopDevelopmentRequest(url), url).toBe(false);
+    }
+  });
+
+  it('keeps production fail-closed for network requests and validates local schemes', () => {
+    expect(isAllowedLocalRendererResource('file:///C:/DEQR/dist/renderer/index.html')).toBe(true);
+    expect(isAllowedLocalRendererResource('data:image/png;base64,AA==')).toBe(true);
+    expect(isAllowedLocalRendererResource('devtools://devtools/bundled/inspector.html')).toBe(true);
+    expect(isAllowedLocalRendererResource('file://evil.test/renderer.html')).toBe(false);
+    expect(isAllowedLocalRendererResource('javascript:alert(1)')).toBe(false);
+
+    expect(isAllowedRendererRequest('http://localhost:5173/index.tsx', false)).toBe(true);
+    expect(isAllowedRendererRequest('http://localhost:5173/index.tsx', true)).toBe(false);
+    expect(isAllowedRendererRequest('https://example.test/', false)).toBe(false);
+    expect(isAllowedRendererRequest('ws://example.test/', false)).toBe(false);
   });
 });

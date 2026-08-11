@@ -1,0 +1,4 @@
+
+DEQR_RENDERER_LOAD_FINISHED source=packaged-file
+DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available
+DEQR_PACKAGED_ACCEPTANCE_COMPLETE readiness=ready exit=clean

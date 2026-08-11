@@ -1,0 +1,21 @@
+﻿
+> deqr@0.1.0 mobile-web:test
+> vitest run --config mobile-web/vitest.config.ts
+
+
+ RUN  v3.2.7 D:/Projects/DEQR-ios2/mobile-web
+
+ ✓ tests/accessibility-and-design-contract.test.ts (3 tests) 14ms
+ ✓ tests/pwa-assets.test.ts (2 tests) 15ms
+ ✓ tests/camera-controller.test.ts (1 test) 11ms
+ ✓ tests/receiver-lifecycle-and-limits.test.ts (4 tests) 44ms
+ ✓ tests/protocol.test.ts (9 tests) 134ms
+ ✓ tests/serialized-frame-qr-fidelity.test.ts (1 test) 193ms
+ ✓ tests/qr-binary-fidelity.test.ts (5 tests) 670ms
+   ✓ raw QR byte fidelity selection gate > preserves all byte values exactly  301ms
+
+ Test Files  7 passed (7)
+      Tests  25 passed (25)
+   Start at  01:34:54
+   Duration  1.46s (transform 403ms, setup 0ms, collect 1.22s, tests 1.08s, environment 2ms, prepare 1.59s)
+

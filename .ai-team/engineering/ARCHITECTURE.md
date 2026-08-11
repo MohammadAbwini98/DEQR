@@ -76,6 +76,56 @@ Local Persistence (src/storage/*)                    [PROPOSED — M1 minimal]
 
 ---
 
+## Active Mobile Receiver and Local Development Topology
+
+The active mobile receiver is `mobile-web/`, an installable Safari Web App/PWA
+that implements the version 1 DEQR wire contract with browser-safe TypeScript.
+It receives raw QR bytes, reconstructs the DEQR container, verifies SHA-256,
+and only then enables a user-controlled export. It has no backend, upload,
+telemetry, CDN, or remote-transfer path.
+
+The prior `.NET MAUI` material under `mobile/` is **superseded for active
+development** and retained only as historical/reference material. It must not
+be restored or extended as part of the WEB-IOS workstream.
+
+```text
+scripts/run-local.cmd / scripts/run-local.ps1
+  -> build Electron main + preload entries
+  -> desktop Vite (src/renderer) -> http://localhost:5173
+     -> Electron development window (loopback origin only)
+  -> mobile-web Vite -> 0.0.0.0:5174
+     -> HTTP for desktop-browser PWA UI work only
+     -> trusted HTTPS for iPhone camera, PWA, and service-worker tests
+```
+
+Electron never loads or navigates to the PWA origin. The two applications
+interoperate through the DEQR optical wire contract, not through IPC, HTTP
+APIs, or a backend. Electron development allows only the exact loopback Vite
+origin on port 5173 (and its local HMR WebSocket); packaged Electron remains
+fail-closed for network origins. The LAN PWA listener is a scoped development
+and physical-acceptance boundary, not a runtime transfer service.
+
+The desktop and PWA Vite applications use separate dependency-optimizer cache
+directories. This is required because their different dependency graphs must
+not invalidate each other's transformed module URLs. In particular, the
+desktop renderer's browser-safe `Buffer` shim is optimized in the desktop cache
+and is not shared with the PWA cache.
+
+The local launcher treats an open TCP port as insufficient. It verifies the
+expected desktop HTML, entry module, and Buffer dependency response, plus the
+PWA HTML, entry module, and service-worker response, before starting Electron.
+For development launches Electron emits the concise readiness marker
+`DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available` only
+after the dashboard is mounted and the restricted preload bridge is present.
+This marker is launcher evidence, not a release or device-acceptance result.
+
+Trusted-iPhone acceptance remains manual and separate: certificate trust and
+LAN reachability, Safari/installed-PWA launch, offline behavior, camera
+permission, optical reconstruction, integrity verification, and export must be
+observed and recorded on a physical device before they can be marked passed.
+
+---
+
 ## Stream Protocol Layers (Version 1)
 
 ### Layer 1: File Container Format

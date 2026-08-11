@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   root: 'src/renderer',
   base: './', // important for electron
+  // Keep desktop dependency optimization isolated from the standalone PWA.
+  // Both applications use the repository dependency installation, but have
+  // different entry graphs and must never reuse transformed module URLs.
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite-desktop-renderer'),
   build: {
     outDir: '../../dist/renderer',
     emptyOutDir: true,

@@ -1,0 +1,6 @@
+
+> deqr@0.1.0 start
+> electron .
+
+
+DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available
