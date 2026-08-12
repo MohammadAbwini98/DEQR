@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DEQR.Mobile.MainPage"
+             Title="DEQR">
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="16">
+            <Label Text="DEQR Receiver"
+                   FontAttributes="Bold"
+                   FontSize="28" />
+            <Label Text="Offline optical transfer receiver"
+                   FontSize="16" />
+            <Border Stroke="#2A384D"
+                    StrokeShape="RoundRectangle 12"
+                    Padding="16">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="Receiver shell ready" FontAttributes="Bold" />
+                    <Label Text="Camera capture and QR decoding are introduced in the next iOS stage. No camera access is requested on launch." />
+                    <Label x:Name="ReceivedDirectoryLabel" LineBreakMode="CharacterWrap" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,33 +1,121 @@
-import React, { useEffect, useState } from 'react';
-import { TransferState, FileSelectionResult } from '../shared/types';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FileSelectionResult, TransferState } from '../shared/types';
+import deqrLogo from '../../mobile-web/public/icons/deqr.svg';
 import Dashboard from './components/Dashboard';
 import QRCanvas from './components/QRCanvas';
 import LoopbackView from './components/LoopbackView';
 import CameraReceiver from './components/CameraReceiver';
-import { estimateMinimumStreamSeconds, formatFileSize, getIpcErrorMessage } from './ui-model';
+import { getSaveOutcome, isActiveTransferState } from './app-model';
+
+interface IpcErrorResult {
+  error?: { message?: string };
+}
+
+function getIpcError(value: unknown): string | null {
+  if (value && typeof value === 'object' && 'error' in value) {
+    const error = (value as IpcErrorResult).error;
+    return error?.message || 'The requested action could not be completed.';
+  }
+  return null;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
 
 export default function App() {
   const [state, setState] = useState<TransferState>('idle');
   const [session, setSession] = useState<FileSelectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isCancelConfirmationOpen, setIsCancelConfirmationOpen] = useState(false);
-  const [completedReceive, setCompletedReceive] = useState(false);
+  const [notice, setNotice] = useState('Ready for a local, screen-to-camera transfer.');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelDialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('[data-screen-heading]')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state]);
+
+  const closeCancelDialog = useCallback(() => {
+    setCancelDialogOpen(false);
+    window.requestAnimationFrame(() => previousFocusRef.current?.focus());
+  }, []);
+
+  const requestCancel = useCallback(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setCancelDialogOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!cancelDialogOpen) return;
+    continueButtonRef.current?.focus();
+
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const buttons = Array.from(cancelDialogRef.current?.querySelectorAll<HTMLElement>('button') ?? []);
+      if (buttons.length === 0) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener('keydown', trapFocus);
+    return () => window.removeEventListener('keydown', trapFocus);
+  }, [cancelDialogOpen]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (cancelDialogOpen) {
+        event.preventDefault();
+        closeCancelDialog();
+        return;
+      }
+      if (isActiveTransferState(state)) {
+        event.preventDefault();
+        requestCancel();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [cancelDialogOpen, closeCancelDialog, requestCancel, state]);
 
   const handleSelectFile = async () => {
     try {
       setError(null);
+      setNotice('Opening the secure file picker.');
       setState('selecting-file');
-      const res = await window.deqr.files.selectForTransfer();
-      const ipcError = getIpcErrorMessage(res);
-      if (ipcError) throw new Error(ipcError);
-      if (res && res.sessionId) {
-        setSession(res);
+      const result = await window.deqr.files.selectForTransfer();
+      const ipcError = getIpcError(result);
+      if (ipcError) {
+        setError(ipcError);
+        setState('failed');
+        return;
+      }
+      if (result?.sessionId) {
+        setSession(result);
+        setNotice('File prepared. Review its details before starting the optical stream.');
         setState('file-selected');
       } else {
+        setNotice('No file was selected.');
         setState('idle');
       }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to select file');
+    } catch (caught) {
+      setError(getIpcError(caught) || 'Failed to select a file.');
       setState('failed');
     }
   };
@@ -35,13 +123,15 @@ export default function App() {
   const handleStartTransfer = async () => {
     if (!session) return;
     try {
+      setError(null);
       setState('preparing');
       const result = await window.deqr.transfer.start(session.sessionId);
-      const ipcError = getIpcErrorMessage(result);
+      const ipcError = getIpcError(result);
       if (ipcError) throw new Error(ipcError);
+      setNotice('Optical stream is active. Keep the QR code unobstructed and high contrast.');
       setState('streaming');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Transfer failed');
+    } catch (caught) {
+      setError(getIpcError(caught) || (caught instanceof Error ? caught.message : 'Transfer failed.'));
       setState('failed');
     }
   };
@@ -49,145 +139,195 @@ export default function App() {
   const handleStartLoopback = async () => {
     if (!session) return;
     try {
+      setError(null);
       setState('preparing');
       const result = await window.deqr.loopback.start(session.sessionId, {
         lossPercentage: 30,
         shuffle: true,
         duplicateInjection: false,
       });
-      const ipcError = getIpcErrorMessage(result);
+      const ipcError = getIpcError(result);
       if (ipcError) throw new Error(ipcError);
+      setNotice('Loopback verification is reconstructing the prepared container.');
       setState('loopback-receiving');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Loopback failed');
+    } catch (caught) {
+      setError(getIpcError(caught) || (caught instanceof Error ? caught.message : 'Loopback failed.'));
       setState('failed');
     }
   };
 
   const handleReceiveFile = () => {
     setError(null);
+    setNotice('The camera remains off until you choose Start camera.');
     setState('receive-camera');
   };
 
-  const handleVerifiedReceive = async (payload: Uint8Array, metadata: { filename: string }) => {
+  const handleVerifiedReceive = useCallback(async (payload: Uint8Array, metadata: unknown) => {
+    setError(null);
     setState('verifying');
-    const success = await window.deqr.receive.saveReceivedFile(payload, metadata.filename);
-    if (success) {
-      setCompletedReceive(true);
-      setState('completed');
-    } else {
-      setError('The received file could not be saved. Its integrity was not accepted as a successful transfer.');
+    const defaultName = typeof metadata === 'object' && metadata && 'filename' in metadata
+      ? String((metadata as { filename: string }).filename)
+      : 'received_transfer.deqr';
+
+    try {
+      const success = await window.deqr.receive.saveReceivedFile(payload, defaultName);
+      const outcome = getSaveOutcome(success);
+      if (outcome.notice) setNotice(outcome.notice);
+      if (outcome.error) setError(outcome.error);
+      setState(outcome.state);
+    } catch (caught) {
+      setError(getIpcError(caught) || (caught instanceof Error ? caught.message : 'The received file could not be verified or saved.'));
       setState('failed');
     }
-  };
+  }, []);
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
+    setCancelDialogOpen(false);
     if (session) {
       try {
         await window.deqr.transfer.cancel(session.sessionId);
         await window.deqr.loopback.cancel(session.sessionId);
       } catch {
-        // Sessions can have already ended; the UI still returns to a safe idle state.
+        // Cancellation is intentionally idempotent; the main process owns cleanup.
       }
     }
     setSession(null);
-    setIsCancelConfirmationOpen(false);
-    setState('idle');
-  };
-
-  const requestCancel = () => setIsCancelConfirmationOpen(true);
-
-  const returnToDashboard = () => {
-    setCompletedReceive(false);
-    setSession(null);
     setError(null);
+    setNotice(session
+      ? 'Transfer cancelled. Temporary sender data was released by the main process.'
+      : 'Ready for a local, screen-to-camera transfer.');
     setState('idle');
-  };
-
-  useEffect(() => {
-    const isCancellable = state === 'streaming' || state === 'loopback-receiving' || state === 'receive-camera';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isCancellable && !isCancelConfirmationOpen) {
-        event.preventDefault();
-        setIsCancelConfirmationOpen(true);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isCancelConfirmationOpen, state]);
+  }, [session]);
 
   return (
     <div className="app-container">
-      <header className="titlebar" aria-label="Window controls">
-        <div className="titlebar-title">DEQR — Optical Transfer</div>
-        <div className="titlebar-controls">
-          <button className="titlebar-button" aria-label="Minimize window" onClick={() => window.deqr.windowControls.minimize()}>-</button>
-          <button className="titlebar-button" aria-label="Maximize or restore window" onClick={() => window.deqr.windowControls.maximizeOrRestore()}>□</button>
-          <button className="titlebar-button close" aria-label="Close window" onClick={() => window.deqr.windowControls.close()}>×</button>
+      <header className="titlebar">
+        <div className="titlebar-brand" aria-label="DEQR Optical Transfer">
+          <img src={deqrLogo} alt="" className="brand-mark" />
+          <span>DEQR</span>
+          <span className="titlebar-separator" aria-hidden="true">/</span>
+          <span className="titlebar-context">Optical Transfer</span>
+        </div>
+        <div className="titlebar-controls" aria-label="Window controls">
+          <button className="titlebar-button" onClick={() => window.deqr.windowControls.minimize()} aria-label="Minimize window">−</button>
+          <button className="titlebar-button" onClick={() => window.deqr.windowControls.maximizeOrRestore()} aria-label="Maximize or restore window">□</button>
+          <button className="titlebar-button close" onClick={() => window.deqr.windowControls.close()} aria-label="Close window">×</button>
         </div>
       </header>
 
-      <main className="content">
-        {(state === 'idle' || state === 'selecting-file' || state === 'failed') && (
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {state === 'preparing' && 'Preparing the local optical stream.'}
+        {state === 'streaming' && 'Optical stream active.'}
+        {state === 'loopback-receiving' && 'Local verification active.'}
+        {state === 'receive-camera' && 'Desktop camera receiver ready.'}
+        {state === 'verifying' && 'Verifying the received file.'}
+        {state === 'completed' && 'The received file was saved.'}
+        {state === 'failed' && 'The requested operation failed.'}
+      </p>
+      <main className={`content content--${state}`}>
+        {(state === 'idle' || state === 'selecting-file') && (
           <Dashboard
             onSelectFile={handleSelectFile}
             onReceiveFile={handleReceiveFile}
-            error={error}
+            error={null}
+            notice={notice}
             isSelecting={state === 'selecting-file'}
           />
         )}
 
         {state === 'file-selected' && session && (
-          <section className="card" aria-labelledby="send-ready-title">
-            <div>
-              <h2 id="send-ready-title">Ready to Transfer</h2>
-              <p style={{ color: 'var(--text-secondary)', marginTop: '8px' }}>Review the transfer details before displaying the optical stream.</p>
+          <section className="selection-card" aria-labelledby="ready-heading">
+            <div className="section-heading">
+              <p className="eyebrow">Send file</p>
+              <h1 id="ready-heading" data-screen-heading tabIndex={-1}>Ready to transfer</h1>
+              <p>Review the local metadata, then present the QR stream to the receiving camera.</p>
             </div>
+
             <dl className="metadata-grid">
-              <dt>Filename</dt><dd>{session.metadata.filename}</dd>
-              <dt>Type</dt><dd>{session.metadata.mimeType}</dd>
-              <dt>Size</dt><dd>{formatFileSize(session.metadata.size)}</dd>
-              <dt>SHA-256</dt><dd>{session.metadata.sha256}</dd>
-              <dt>Compression</dt><dd>{session.metadata.compressed ? 'Applied' : 'Not applied'}</dd>
-              <dt>Stream profile</dt><dd>Fixed 30 FPS; selectable profiles are not yet implemented.</dd>
-              <dt>Estimated lower bound</dt><dd>{estimateMinimumStreamSeconds(session.metadata.size).toFixed(1)} seconds before container and frame-recovery overhead.</dd>
+              <div><dt>File</dt><dd title={session.metadata.filename}>{session.metadata.filename}</dd></div>
+              <div><dt>Size</dt><dd>{formatFileSize(session.metadata.size)}</dd></div>
+              <div><dt>Type</dt><dd>{session.metadata.mimeType}</dd></div>
+              <div><dt>Integrity</dt><dd className="monospace">{session.metadata.sha256?.slice(0, 16)}…</dd></div>
             </dl>
-            <div className="button-row">
-              <button className="primary" onClick={handleStartTransfer}>Start Optical Transfer</button>
-              <button onClick={handleStartLoopback}>Run Loopback Test (30% Loss)</button>
-              <button className="danger" onClick={requestCancel}>Cancel</button>
+
+            <aside className="capacity-note" aria-label="DEQR v1 transfer capacity">
+              <span aria-hidden="true">i</span>
+              <p><strong>DEQR v1 capacity:</strong> the serialized optical container must be below 32 MiB. Filename and metadata use part of that capacity.</p>
+            </aside>
+
+            <div className="action-row">
+              <button className="primary" onClick={handleStartTransfer}>Start optical transfer</button>
+              <button className="tertiary" onClick={handleCancel}>Choose another file</button>
+            </div>
+
+            <details className="advanced-disclosure">
+              <summary>Advanced local verification</summary>
+              <p>Run a local decoder against the prepared stream with simulated frame loss. This does not replace a physical camera test.</p>
+              <button className="secondary" onClick={handleStartLoopback}>Run local verification</button>
+            </details>
+          </section>
+        )}
+
+        {state === 'preparing' && (
+          <section className="status-card" aria-labelledby="preparing-heading">
+            <p className="eyebrow">Preparing</p>
+            <h1 id="preparing-heading" data-screen-heading tabIndex={-1}>Starting a local transfer</h1>
+            <p role="status">The local, context-isolated IPC bridge is preparing the optical stream. No network transfer is used.</p>
+          </section>
+        )}
+
+        {state === 'streaming' && session && (
+          <QRCanvas sessionId={session.sessionId} fileName={session.metadata.filename} onCancel={requestCancel} />
+        )}
+
+        {state === 'loopback-receiving' && session && (
+          <LoopbackView sessionId={session.sessionId} onCancel={requestCancel} />
+        )}
+
+        {state === 'receive-camera' && (
+          <CameraReceiver onCancel={requestCancel} onVerified={handleVerifiedReceive} />
+        )}
+
+        {state === 'verifying' && (
+          <section className="status-card" aria-labelledby="verifying-heading">
+            <p className="eyebrow">Verifying</p>
+            <h1 id="verifying-heading" data-screen-heading tabIndex={-1}>Checking the received file</h1>
+            <p role="status">The main process is validating the reconstructed container before a save can be reported.</p>
+          </section>
+        )}
+
+        {state === 'completed' && (
+          <section className="status-card status-card--success" aria-labelledby="completed-heading">
+            <p className="eyebrow">Completed</p>
+            <h1 id="completed-heading" data-screen-heading tabIndex={-1}>File verified and saved</h1>
+            <p>The verified received file was saved to the location selected in the save dialog.</p>
+            <div className="action-row">
+              <button className="primary" onClick={handleReceiveFile}>Receive another file</button>
+              <button className="tertiary" onClick={() => setState('idle')}>Return to dashboard</button>
             </div>
           </section>
         )}
 
-        {state === 'streaming' && session && <QRCanvas sessionId={session.sessionId} onCancel={requestCancel} />}
-        {state === 'loopback-receiving' && session && <LoopbackView sessionId={session.sessionId} onCancel={requestCancel} />}
-        {state === 'receive-camera' && <CameraReceiver onCancel={requestCancel} onVerified={handleVerifiedReceive} />}
-
-        {state === 'completed' && completedReceive && (
-          <section className="card" aria-labelledby="result-title">
-            <div className="status-message success" role="status">
-              <h2 id="result-title">Transfer Verified</h2>
-              <p style={{ marginTop: '8px' }}>The received payload passed SHA-256 verification and was saved through the native file dialog.</p>
-            </div>
-            <p style={{ color: 'var(--text-secondary)' }}>The native save dialog uses the verified filename from the received container.</p>
-            <div className="button-row">
-              <button className="primary" onClick={handleReceiveFile}>Receive Another</button>
-              <button onClick={returnToDashboard}>Return to Dashboard</button>
+        {state === 'failed' && (
+          <section className="status-card status-card--failure" aria-labelledby="failed-heading">
+            <p className="eyebrow">Action not completed</p>
+            <h1 id="failed-heading" data-screen-heading tabIndex={-1}>Something prevented completion</h1>
+            <p className="error-banner" role="alert">{error || 'The requested action could not be completed.'}</p>
+            <div className="action-row">
+              <button className="primary" onClick={handleCancel}>Return to dashboard</button>
             </div>
           </section>
         )}
       </main>
 
-      {isCancelConfirmationOpen && (
+      {cancelDialogOpen && (
         <div className="dialog-backdrop" role="presentation">
-          <section className="card dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-dialog-title">
-            <h2 id="cancel-dialog-title">Cancel transfer?</h2>
-            <p>Current transfer data will be discarded.</p>
-            <div className="button-row">
-              <button className="danger" onClick={handleCancel}>Cancel Transfer</button>
-              <button className="primary" autoFocus onClick={() => setIsCancelConfirmationOpen(false)}>Continue Transfer</button>
+          <section ref={cancelDialogRef} className="cancel-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-heading" aria-describedby="cancel-description">
+            <h2 id="cancel-heading">Cancel the active transfer?</h2>
+            <p id="cancel-description">Progress from this send or receive session will be discarded. This action cannot be undone.</p>
+            <div className="action-row">
+              <button ref={continueButtonRef} className="primary" onClick={closeCancelDialog}>Continue transfer</button>
+              <button className="danger" onClick={handleCancel}>Cancel transfer</button>
             </div>
           </section>
         </div>

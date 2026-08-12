@@ -1,121 +1,168 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { evaluateMediaPermission } from '../../src/main/development-request-policy';
 
-// We need to mock Electron's session to test the permission handlers directly.
-// The easiest way is to extract the handler logic into a testable function or mock it here to verify our logic matches.
-// Since the logic is inline in src/main/index.ts, we'll replicate the logic block here exactly as implemented,
-// or we can test it by exporting the handlers. Since we didn't export them, we'll write a mock handler
-// that matches exactly what we injected, to verify the boolean logic matrix.
+// These cases exercise the exact function both Electron permission handlers in
+// src/main/index.ts delegate to. An earlier version of this file re-declared the
+// handler logic locally, which silently diverged from production once the
+// prefix-based origin checks were replaced with parsed-URL policy.
 
-const createRequestHandler = () => {
-  return (webContents: any, permission: string, callback: (granted: boolean) => void, details: any) => {
-    if (!webContents) {
-      return callback(false);
-    }
-    const url = webContents.getURL();
-    const isTrusted = url === 'http://localhost:5173/' || url.startsWith('file://');
-    const isMainFrame = details.isMainFrame === true;
+const DEV_FRAME = 'http://localhost:5173/';
+const DEV_ORIGIN = 'http://localhost:5173';
+const PACKAGED_FRAME = 'file:///C:/app/index.html';
 
-    if (permission === 'media' && isTrusted && isMainFrame) {
-      if (details.mediaTypes && details.mediaTypes.includes('video') && !details.mediaTypes.includes('audio')) {
-        return callback(true);
-      }
-    }
-    callback(false);
-  };
-};
-
-const createCheckHandler = () => {
-  return (webContents: any, permission: string, requestingOrigin: string, details: any) => {
-    if (!webContents) {
-      return false;
-    }
-    const url = webContents.getURL();
-    const isOriginTrusted = requestingOrigin === 'http://localhost:5173' || requestingOrigin.startsWith('file://');
-    const isUrlTrusted = url === 'http://localhost:5173/' || url.startsWith('file://');
-    const isTrusted = isOriginTrusted && isUrlTrusted;
-    
-    const isMainFrame = details?.isMainFrame === true;
-
-    if (permission === 'media' && isTrusted && isMainFrame) {
-      if (details.mediaTypes && details.mediaTypes.includes('video') && !details.mediaTypes.includes('audio')) {
-        return true;
-      }
-    }
-    return false;
-  };
-};
-
-describe('Electron Permission Handlers', () => {
-  const requestHandler = createRequestHandler();
-  const checkHandler = createCheckHandler();
-
-  const createWebContents = (url: string) => ({
-    getURL: () => url
+describe('evaluateMediaPermission — request-handler shape (no requestingOrigin)', () => {
+  it('allows main-frame video from the trusted development origin', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(true);
   });
 
-  describe('setPermissionRequestHandler', () => {
-    it('allows video request from trusted dev origin in main frame', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('http://localhost:5173/'), 'media', cb, { isMainFrame: true, mediaTypes: ['video'] });
-      expect(cb).toHaveBeenCalledWith(true);
-    });
-
-    it('allows video request from trusted file origin in main frame', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('file:///C:/app/index.html'), 'media', cb, { isMainFrame: true, mediaTypes: ['video'] });
-      expect(cb).toHaveBeenCalledWith(true);
-    });
-
-    it('denies if audio is requested alongside video', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('http://localhost:5173/'), 'media', cb, { isMainFrame: true, mediaTypes: ['video', 'audio'] });
-      expect(cb).toHaveBeenCalledWith(false);
-    });
-
-    it('denies if it is a subframe', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('http://localhost:5173/'), 'media', cb, { isMainFrame: false, mediaTypes: ['video'] });
-      expect(cb).toHaveBeenCalledWith(false);
-    });
-
-    it('denies if the origin is untrusted', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('https://malicious.com/'), 'media', cb, { isMainFrame: true, mediaTypes: ['video'] });
-      expect(cb).toHaveBeenCalledWith(false);
-    });
-
-    it('denies if webContents is null', () => {
-      const cb = vi.fn();
-      requestHandler(null, 'media', cb, { isMainFrame: true, mediaTypes: ['video'] });
-      expect(cb).toHaveBeenCalledWith(false);
-    });
-
-    it('denies non-media permissions', () => {
-      const cb = vi.fn();
-      requestHandler(createWebContents('http://localhost:5173/'), 'geolocation', cb, { isMainFrame: true });
-      expect(cb).toHaveBeenCalledWith(false);
-    });
+  it('allows main-frame video from the packaged local renderer', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: PACKAGED_FRAME,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(true);
   });
 
-  describe('setPermissionCheckHandler', () => {
-    it('allows video check from trusted origin in main frame', () => {
-      const result = checkHandler(createWebContents('http://localhost:5173/'), 'media', 'http://localhost:5173', { isMainFrame: true, mediaTypes: ['video'] });
-      expect(result).toBe(true);
-    });
+  it.each([
+    ['audio requested alongside video', { mediaTypes: ['video', 'audio'] }],
+    ['audio only', { mediaTypes: ['audio'] }],
+    ['no media types', {}],
+    ['empty media types', { mediaTypes: [] }],
+  ])('denies %s', (_label, overrides) => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        isMainFrame: true,
+        ...overrides,
+      }),
+    ).toBe(false);
+  });
 
-    it('denies if requestingOrigin mismatches actual url origin', () => {
-      const result = checkHandler(createWebContents('https://malicious.com/'), 'media', 'http://localhost:5173', { isMainFrame: true, mediaTypes: ['video'] });
-      expect(result).toBe(false);
-    });
+  it('denies a subframe', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        isMainFrame: false,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
 
-    it('denies audio in check handler', () => {
-      const result = checkHandler(createWebContents('http://localhost:5173/'), 'media', 'http://localhost:5173', { isMainFrame: true, mediaTypes: ['audio'] });
-      expect(result).toBe(false);
-    });
+  it('denies non-media permissions', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'geolocation',
+        frameUrl: DEV_FRAME,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
 
-    it('denies null webContents', () => {
-      const result = checkHandler(null, 'media', 'http://localhost:5173', { isMainFrame: true, mediaTypes: ['video'] });
-      expect(result).toBe(false);
-    });
+  it.each([
+    ['a remote origin', 'https://malicious.com/'],
+    ['an alternate loopback port', 'http://localhost:5174/'],
+    ['credentials on the development origin', 'http://user:pass@localhost:5173/'],
+    // A host-bearing file URL is not a local renderer resource. The previous
+    // duplicated `startsWith('file://')` test logic accepted these.
+    ['a host-bearing file URL', 'file://evil.com/C:/app/index.html'],
+    ['a remote-looking file URL', 'file://attacker.example/payload.html'],
+    ['a missing frame URL', null],
+    ['an unparseable frame URL', ''],
+  ])('denies %s', (_label, frameUrl) => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('evaluateMediaPermission — check-handler shape (with requestingOrigin)', () => {
+  it('allows video when both the frame and the requesting origin are trusted', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        requestingOrigin: DEV_ORIGIN,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(true);
+  });
+
+  it('allows the packaged renderer origin Electron reports for file frames', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: PACKAGED_FRAME,
+        requestingOrigin: 'file://',
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(true);
+  });
+
+  it('denies when the frame URL is untrusted even if the origin is trusted', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: 'https://malicious.com/',
+        requestingOrigin: DEV_ORIGIN,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
+
+  it('denies when the requesting origin is untrusted even if the frame is trusted', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        requestingOrigin: 'https://malicious.com',
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
+
+  it('denies a null requesting origin', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        requestingOrigin: null,
+        isMainFrame: true,
+        mediaTypes: ['video'],
+      }),
+    ).toBe(false);
+  });
+
+  it('denies audio in the check shape', () => {
+    expect(
+      evaluateMediaPermission({
+        permission: 'media',
+        frameUrl: DEV_FRAME,
+        requestingOrigin: DEV_ORIGIN,
+        isMainFrame: true,
+        mediaTypes: ['audio'],
+      }),
+    ).toBe(false);
   });
 });

@@ -1,0 +1,14 @@
+﻿FIXTURE_DIR D:\Projects\DEQR-ios2\.local-run\acceptance-fixtures
+deqr-fixture-5KiB.bin                  5120  54d9ab36f14c5c39c5b05e2b3da2215871643dee6c92cd87f00443122674f036
+deqr-fixture-25KiB.bin                25600  beb0bb1cc68ed4112540564da7be8537e8f9048842fd35ce8fbb561a510ed21c
+deqr-fixture-100KiB.bin              102400  366e6649897c762f61b8cdecc8e40d1bcea3d241e16cd9b644f96ef44ce18b66
+deqr-fixture-500KiB.bin              512000  6fa8d6a54d195d51d64107a465c85de3bb0013840266b7241da7cd607da6ce25
+deqr-fixture-1MiB.bin               1048576  1040c907399b8dde54111a10198be6a6aae23f83687d9c6351efc2f3c49080a0
+deqr-fixture-ext-25KiB.bin            25600  13a131ca7638332aaa80d8a212b359bff3a78aac4eb2e22fd6d2ea672683a12a
+deqr-fixture-ext-25KiB.txt            25600  b8e47a0690ace97a1d2ffca2ed1d4856677c1af608f37dd4137e52693398f3a1
+deqr-fixture-ext-25KiB.pdf            25600  5290180ee02f38c4d96b212de182f9f3b0612c5722da588ef99dcb45cebf404f
+deqr-fixture-ext-25KiB.xlsx           25600  26481a599ce141ac5b41a96b670f9aaa418839e44d362972e98c758ddd5002cb
+deqr-fixture-ext-25KiB.docx           25600  ad31a46693d6e71941fd6173cad76efc4d21d3a6c40309f6afd91f866e57ee9b
+deqr-fixture-ext-25KiB.zip            25600  5e1482231f98eb181f65b074288f9832c7c4395c93a90cfc5ce3dd1b4d52c6ca
+deqr-fixture-ext-25KiB.log            25600  cf54b0df69b27fc1a1520542994053e5e2899dc4f8434558862587126db4deed
+MANIFEST D:\Projects\DEQR-ios2\.local-run\acceptance-fixtures\MANIFEST.txt

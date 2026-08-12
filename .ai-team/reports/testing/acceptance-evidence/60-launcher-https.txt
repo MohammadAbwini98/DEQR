@@ -1,0 +1,39 @@
+
+DEQR local development launcher
+Repository: D:\Projects\DEQR-ios2
+Desktop sender: http://localhost:5173/ (loopback HTTP only; port 5173)
+PWA listener:  https on 0.0.0.0:5174
+Server logs:   D:\Projects\DEQR-ios2\.local-run
+Certificate SANs: 100.95.40.3
+WARNING: The certificate does not cover localhost; no localhost HTTPS URL is advertised.
+PWA iPhone URL: https://100.95.40.3:5174/
+WARNING: Certificate SAN coverage is verified locally. This launcher cannot verify that an iPhone trusts the issuing CA
+ or can reach this PC.
+
+Preparing Electron main-process entry ...
+
+> deqr@0.1.0 build:main
+> tsc -p tsconfig.main.json
+
+Preparing Electron preload entry ...
+
+> deqr@0.1.0 build:preload
+> tsc -p tsconfig.preload.json
+
+Electron entries: ready
+  Main:    D:\Projects\DEQR-ios2\dist\main\index.js
+  Preload: D:\Projects\DEQR-ios2\dist\preload\index.js
+Starting desktop renderer on http://localhost:5173/ ...
+desktop-vite is ready: expected entry and dependency responses confirmed on http://localhost:5173/.
+Starting PWA on https://0.0.0.0:5174 ...
+pwa-vite is ready: expected entry and dependency responses confirmed on https://100.95.40.3:5174/.
+
+Electron sender is starting at http://localhost:5173/.
+CURRENT STATUS: RUNNING
+  Electron main:      PID 8352 (electron.exe); PID 5020 (electron.exe); PID 15928 (electron.exe); PID 12128 (electron.exe)
+  Electron launcher:  PID 5984
+  Desktop URL:        http://localhost:5173/
+  Desktop listener:   ::1:5173 (PID 11268, node)
+  PWA listener:       0.0.0.0:5174 (PID 3212, node)
+  Electron stdout:    D:\Projects\DEQR-ios2\.local-run\electron.stdout.log
+  Electron stderr:    D:\Projects\DEQR-ios2\.local-run\electron.stderr.log

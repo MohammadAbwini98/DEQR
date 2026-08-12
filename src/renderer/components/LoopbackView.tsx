@@ -10,51 +10,35 @@ export default function LoopbackView({ sessionId, onCancel }: Props) {
   const [stats, setStats] = useState<LoopbackStats | null>(null);
 
   useEffect(() => {
-    const unsubscribe = window.deqr.loopback.subscribe(sessionId, (newStats) => {
-      setStats(newStats);
-    });
-
-    return () => {
-      unsubscribe();
-    };
+    const unsubscribe = window.deqr.loopback.subscribe(sessionId, setStats);
+    return unsubscribe;
   }, [sessionId]);
 
-  return (
-    <div className="card">
-      <h2>Loopback Test</h2>
-      <p style={{ color: 'var(--text-secondary)' }}>
-        Simulating 30% optical frame loss in the main process and reconstructing using the Stage 2 Decoder.
-      </p>
-      
-      {stats ? (
-        <div style={{ margin: '16px 0' }}>
-          <div><strong>Frames Received:</strong> {stats.receivedFrames}</div>
-          <div><strong>Blocks Recovered:</strong> {stats.recoveredBlocks}</div>
-          
-          {stats.isComplete && (
-            <div style={{ 
-              marginTop: '16px', 
-              padding: '12px', 
-              borderRadius: 'var(--radius-md)',
-              background: stats.verificationPassed ? 'rgba(40, 200, 64, 0.1)' : 'rgba(255, 59, 48, 0.1)',
-              color: stats.verificationPassed ? '#34c759' : '#ff3b30',
-              border: `1px solid ${stats.verificationPassed ? '#34c759' : '#ff3b30'}`
-            }}>
-              <strong>{stats.verificationPassed ? 'VERIFICATION PASSED' : 'VERIFICATION FAILED'}</strong>
-              <br/>
-              Hash Match: {stats.hashMatched ? 'Yes' : 'No'}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ margin: '16px 0' }}>Initializing decoder...</div>
-      )}
+  const complete = Boolean(stats?.isComplete);
+  const passed = Boolean(stats?.verificationPassed && stats?.hashMatched);
 
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button className="danger" onClick={onCancel}>
-          {stats?.isComplete ? 'Close' : 'Cancel Loopback'}
-        </button>
+  return (
+    <section className="verification-view" aria-labelledby="verification-heading">
+      <header className="section-heading">
+        <p className="eyebrow">Local verification</p>
+        <h1 id="verification-heading" data-screen-heading tabIndex={-1}>Checking the optical container</h1>
+        <p>A local decoder reconstructs the same prepared stream with simulated 30% frame loss.</p>
+      </header>
+
+      <dl className="verification-metrics" aria-label="Loopback verification metrics">
+        <div><dt>Frames received</dt><dd>{stats?.receivedFrames ?? '—'}</dd></div>
+        <div><dt>Blocks recovered</dt><dd>{stats?.recoveredBlocks ?? '—'}</dd></div>
+      </dl>
+
+      <div className={`verification-result ${complete ? (passed ? 'verification-result--success' : 'verification-result--failure') : ''}`} role="status">
+        {!complete && <><strong>Reconstructing</strong><span>Waiting for enough validated frames to complete the fountain decode.</span></>}
+        {complete && passed && <><strong>Integrity verified</strong><span>The reconstructed container matched its SHA-256 verification check.</span></>}
+        {complete && !passed && <><strong>Verification did not pass</strong><span>The reconstructed result was not accepted. No file is saved from this result.</span></>}
       </div>
-    </div>
+
+      <div className="action-row">
+        <button className={complete ? 'primary' : 'danger'} onClick={onCancel}>{complete ? 'Done' : 'Cancel verification'}</button>
+      </div>
+    </section>
   );
 }

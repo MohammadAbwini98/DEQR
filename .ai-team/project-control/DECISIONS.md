@@ -75,3 +75,23 @@
   7. Offline Policy: Zero remote network calls (`http`, `https`, `ws`, `wss`, `Bonjour`, `analytics`, `telemetry`).
   8. Signing & Distribution: Free Personal Team / Apple Account local development signing with Developer Mode enabled on the test device.
 - **Consequences**: Single C# core codebase reusable for future Android receiver targets. Direct native access to AVFoundation and iOS Files picker. Requires Pair to Mac / Xcode setup on Mac host during iOS compilation. Groundwork laid for Milestone M2.
+
+---
+
+## ADR-008 / DEQR-ADR-MOBILE-002: Installable Safari Web App/PWA Receiver
+
+- **Date**: 2026-08-08
+- **Status**: APPROVED
+- **Context**: The MAUI iOS route requires Mac/Xcode for build/deployment. The selected development and installation model is Safari > Share > Add to Home Screen > Open as Web App on a physical iPhone.
+- **Decision**: Supersede MAUI as the active receiver implementation. Preserve `mobile/` as historical/reference material and implement the active receiver in `mobile-web/` as a standalone installable PWA. The browser receiver uses raw `Uint8Array` QR decoder output, a browser-safe implementation of the desktop v1 DEQR frame/container/fountain contract, Web Crypto SHA-256, bounded in-memory temporary storage, and Web Share/download export. It contains no backend, telemetry, CDN, or transfer upload path.
+- **Consequences**: Native MAUI/AVFoundation behavior and IPA deployment are out of the active scope. Initial PWA installation/update requires a trusted HTTPS origin; subsequent cached optical transfer is designed to be offline. Physical iPhone Safari and installed-PWA validation are mandatory release gates and cannot be inferred from desktop browser tests.
+
+---
+
+## ADR-009 / DEQR-ADR-WEB-IOS-STARTUP-001: Separate Local Development Origins and Optimizer Caches
+
+- **Date**: 2026-08-09
+- **Status**: APPROVED FOR LOCAL DEVELOPMENT
+- **Context**: Electron showed a white renderer area while `run-local.cmd -Https` started both applications. Investigation reproduced a shared Vite optimizer cache collision: the PWA optimization replaced the desktop metadata, leaving the desktop renderer's browser `buffer` import at an obsolete `504 Outdated Optimize Dep` URL before React executed.
+- **Decision**: Electron development remains `http://localhost:5173/` with a parsed exact-loopback development exception. The PWA remains a distinct LAN-bound server on `5174`, using trusted HTTPS only for physical iPhone work. The two Vite configurations use separate optimizer cache directories. The launcher must verify expected HTML/module/dependency responses before Electron starts and await a concise dashboard-plus-preload readiness marker. HTTPS certificate SAN checking is local-only and must never use a global TLS bypass.
+- **Consequences**: The desktop and PWA do not need to share an origin or certificate. Local HTTP/HTTPS startup has automated evidence, but certificate trust, firewall reachability, PWA installation/offline behavior, camera, export, optical transfer, package integrity, and release promotion remain separate gates.

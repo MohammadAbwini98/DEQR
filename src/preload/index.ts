@@ -43,8 +43,11 @@ const api: DeqrAPI = {
     }
   },
   receive: {
-    saveReceivedFile: (fileData: Uint8Array, defaultName: string) => 
+    saveReceivedFile: (fileData: Uint8Array, defaultName: string) =>
       ipcRenderer.invoke('receive:saveReceivedFile', fileData, defaultName)
+  },
+  pwaHost: {
+    getStatus: () => ipcRenderer.invoke('pwaHost:getStatus')
   }
 };
 

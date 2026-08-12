@@ -1,42 +1,50 @@
 import React from 'react';
+import PwaHostCard from './PwaHostCard';
 
 interface Props {
   onSelectFile: () => void;
   onReceiveFile: () => void;
   isSelecting: boolean;
   error: string | null;
+  notice: string;
 }
 
-export default function Dashboard({ onSelectFile, onReceiveFile, isSelecting, error }: Props) {
+export default function Dashboard({ onSelectFile, onReceiveFile, isSelecting, error, notice }: Props) {
   return (
-    <section className="card" aria-labelledby="dashboard-title">
-      <div>
-        <h1 id="dashboard-title">DEQR Optical Transfer</h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '8px' }}>
-          Transfer files offline using an optical QR stream.
-        </p>
+    <section className="dashboard" aria-labelledby="dashboard-heading">
+      <div className="dashboard-intro">
+        <p className="eyebrow">Private by design</p>
+        <h1 id="dashboard-heading" data-screen-heading tabIndex={-1}>DEQR Optical Transfer</h1>
+        <p className="lede">Move a verified file between isolated devices through a high-contrast animated QR stream.</p>
+        <p className="capacity-copy">DEQR v1 supports a serialized transfer below <strong>32 MiB</strong>. Choose a source file slightly smaller to leave room for required metadata.</p>
       </div>
 
-      <div className="dashboard-actions">
-        <button className="action-card primary" onClick={onSelectFile} disabled={isSelecting}>
-          <strong>{isSelecting ? 'Opening file picker…' : 'Send File'}</strong>
-          <span>Select a permitted file up to 64 MB and start an optical transfer.</span>
-        </button>
-        <button className="action-card" onClick={onReceiveFile}>
-          <strong>Receive File</strong>
-          <span>Use a local camera to decode a DEQR transfer and verify its integrity.</span>
-        </button>
+      <div className="action-grid">
+        <article className="action-card">
+          <div className="action-icon" aria-hidden="true">↑</div>
+          <div>
+            <h2>Send a file</h2>
+            <p>Prepare a local file, show the animated QR code, and keep the transfer fully offline.</p>
+          </div>
+          <button className="primary" onClick={onSelectFile} disabled={isSelecting}>
+            {isSelecting ? 'Opening file picker…' : 'Choose file'}
+          </button>
+        </article>
+
+        <article className="action-card">
+          <div className="action-icon action-icon--receive" aria-hidden="true">↓</div>
+          <div>
+            <h2>Receive on this desktop</h2>
+            <p>Use the local camera receiver for a controlled desktop receive or verification workflow.</p>
+          </div>
+          <button className="secondary" onClick={onReceiveFile}>Open receiver</button>
+        </article>
       </div>
 
-      {error && (
-        <div className="status-message error" role="alert">
-          {error}
-        </div>
-      )}
+      <PwaHostCard />
 
-      <footer style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-        DEQR 0.1.0 · Offline mode · Ready for a local transfer
-      </footer>
+      <p className="privacy-note" role="status">{notice}</p>
+      {error && <p className="error-banner" role="alert">{error}</p>}
     </section>
   );
 }

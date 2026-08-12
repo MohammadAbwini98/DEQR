@@ -1,13 +1,28 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import crypto from 'crypto';
-import { globalSessionManager, SessionState } from './session-manager';
+import { performance } from 'node:perf_hooks';
+import {
+  globalSessionManager,
+  SessionState,
+  V1_FOUNTAIN_BLOCK_SIZE_BYTES,
+  V1_MAX_SERIALIZED_CONTAINER_BYTES,
+} from './session-manager';
 import { sanitizeError, ErrorCode, DeqrError } from '../shared/errors';
+import type { TransferStats } from '../shared/types';
 import { FountainEncoder } from '../core/fountain-encoder';
 import { FountainDecoder } from '../core/fountain-decoder';
 import { serializeFrame } from '../core/protocol';
 import { deserializeContainer } from '../core/container';
 import { computeSha256 } from '../core/hash';
+import { isBlockedExtension } from '../core/filename-sanitizer';
+import { getPwaHostStatus } from './pwa-host';
+
+// The browser receiver serially samples full camera frames at roughly 11 Hz
+// before decode cost. Keep the sender below that ceiling until physical-device
+// measurements establish a safe higher rate.
+const DEFAULT_OPTICAL_TRANSFER_FPS = 10;
+const OPTICAL_TRANSFER_INTERVAL_MS = 1_000 / DEFAULT_OPTICAL_TRANSFER_FPS;
 
 export function registerIpcHandlers() {
   ipcMain.handle('windowControls:minimize', (event) => {
@@ -22,6 +37,10 @@ export function registerIpcHandlers() {
   ipcMain.handle('windowControls:close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
+
+  // Read-only view of the LAN receiver publication. It carries no key material
+  // and no filesystem paths, so the renderer can display it directly.
+  ipcMain.handle('pwaHost:getStatus', () => getPwaHostStatus());
 
   ipcMain.handle('files:selectForTransfer', async (event) => {
     try {
@@ -44,13 +63,18 @@ export function registerIpcHandlers() {
         throw new DeqrError(ErrorCode.INVALID_TRANSFER_STATE, 'Transfer already running');
       }
 
-      session.encoder = new FountainEncoder(session.payload, 512, sessionId); // 512 block size, seed = sessionId
-      
+      session.encoder = new FountainEncoder(session.payload, V1_FOUNTAIN_BLOCK_SIZE_BYTES, sessionId);
+
       session.activeTransfer = {
-        intervalId: setInterval(() => generateFrame(event.sender, session), 1000 / 30), // Target 30fps
+        intervalId: null,
         framesGenerated: 0,
-        startTime: Date.now()
+        elapsedActiveMs: 0,
+        activeSinceMs: performance.now()
       };
+      session.activeTransfer.intervalId = setInterval(
+        () => generateFrame(event.sender, session),
+        OPTICAL_TRANSFER_INTERVAL_MS,
+      );
     } catch (e) {
       return { error: sanitizeError(e) };
     }
@@ -60,8 +84,15 @@ export function registerIpcHandlers() {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer) {
-        clearInterval(session.activeTransfer.intervalId);
-        session.activeTransfer.intervalId = null as any; // marked paused
+        if (session.activeTransfer.intervalId !== null) {
+          const now = performance.now();
+          if (session.activeTransfer.activeSinceMs !== null) {
+            session.activeTransfer.elapsedActiveMs += now - session.activeTransfer.activeSinceMs;
+          }
+          session.activeTransfer.activeSinceMs = null;
+          clearInterval(session.activeTransfer.intervalId);
+          session.activeTransfer.intervalId = null;
+        }
       }
     } catch (e) {}
   });
@@ -70,7 +101,11 @@ export function registerIpcHandlers() {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer && !session.activeTransfer.intervalId) {
-        session.activeTransfer.intervalId = setInterval(() => generateFrame(event.sender, session), 1000 / 30);
+        session.activeTransfer.activeSinceMs = performance.now();
+        session.activeTransfer.intervalId = setInterval(
+          () => generateFrame(event.sender, session),
+          OPTICAL_TRANSFER_INTERVAL_MS,
+        );
       }
     } catch (e) {}
   });
@@ -87,7 +122,7 @@ export function registerIpcHandlers() {
         throw new DeqrError(ErrorCode.INVALID_TRANSFER_STATE, 'Loopback already running');
       }
 
-      session.encoder = new FountainEncoder(session.payload, 512, sessionId);
+      session.encoder = new FountainEncoder(session.payload, V1_FOUNTAIN_BLOCK_SIZE_BYTES, sessionId);
       session.activeLoopback = {
         intervalId: setInterval(() => loopbackFrame(event.sender, session, options), 1000 / 60), // Target 60fps for loopback
         decoder: new FountainDecoder()
@@ -98,26 +133,53 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('loopback:cancel', async (event, sessionId: number) => {
-    const session = globalSessionManager.getSession(sessionId);
+    // A renderer can emit cancel after a completed transfer removed its session.
+    // Cancellation is intentionally idempotent, so this is not an IPC error.
+    const session = globalSessionManager.findSession(sessionId);
+    if (!session) return;
     if (session.activeLoopback) {
       clearInterval(session.activeLoopback.intervalId);
       session.activeLoopback = undefined;
     }
   });
 
-  ipcMain.handle('receive:saveReceivedFile', async (event, containerData: Uint8Array, defaultName: string) => {
+  ipcMain.handle('receive:saveReceivedFile', async (event, containerData: unknown, defaultName: string) => {
+    let containerBuffer: Buffer | undefined;
+    let containerPayload: Buffer | undefined;
+    let expectedHash: Buffer | undefined;
+    let actualHash: Buffer | undefined;
+
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
       if (!window) return false;
 
+      if (!(containerData instanceof Uint8Array)) {
+        console.warn('DEQR_RECEIVE_REJECTED reason=invalid_container_type');
+        return false;
+      }
+
+      if (containerData.byteLength > V1_MAX_SERIALIZED_CONTAINER_BYTES) {
+        console.warn('DEQR_RECEIVE_REJECTED reason=container_too_large');
+        return false;
+      }
+
       // 1. Validate container & extract metadata
-      const containerBuffer = Buffer.from(containerData);
+      // Buffer.from(Uint8Array) makes a private copy so cleanup never mutates
+      // the renderer-owned structured-clone input.
+      containerBuffer = Buffer.from(containerData);
       const container = deserializeContainer(containerBuffer);
+      containerPayload = container.payload;
+      expectedHash = container.metadata.sha256;
+
+      if (isBlockedExtension(container.metadata.filename)) {
+        console.warn('DEQR_RECEIVE_REJECTED reason=blocked_extension');
+        return false;
+      }
 
       // 2. Validate cryptographic hash in Main
-      const actualHash = computeSha256(container.payload);
-      if (!actualHash.equals(container.metadata.sha256)) {
-        console.error('Hash mismatch: Container payload does not match metadata SHA-256');
+      actualHash = computeSha256(containerPayload);
+      if (!actualHash.equals(expectedHash)) {
+        console.error('DEQR_RECEIVE_REJECTED reason=hash_mismatch');
         return false;
       }
 
@@ -132,7 +194,14 @@ export function registerIpcHandlers() {
       // 4. Atomic write via unique temp file
       const tmpPath = `${filePath}.${crypto.randomUUID()}.deqr.tmp`;
       try {
-        await fs.promises.writeFile(tmpPath, container.payload);
+        // IPC provides a structured-clone snapshot. Write the validated payload
+        // range from that immutable-to-main input so no additional sensitive
+        // write buffer is created; main-owned parse/hash copies are wiped below.
+        const payloadOffset = containerBuffer.byteLength - containerPayload.byteLength;
+        await fs.promises.writeFile(
+          tmpPath,
+          containerData.subarray(payloadOffset, payloadOffset + containerPayload.byteLength),
+        );
         await fs.promises.rename(tmpPath, filePath);
       } catch (writeErr) {
         // Cleanup temp file if it exists and write/rename failed
@@ -145,9 +214,14 @@ export function registerIpcHandlers() {
       }
 
       return true;
-    } catch (e) {
-      console.error('Failed to save file:', e);
+    } catch {
+      console.error('DEQR_RECEIVE_FAILED');
       return false;
+    } finally {
+      actualHash?.fill(0);
+      expectedHash?.fill(0);
+      containerPayload?.fill(0);
+      containerBuffer?.fill(0);
     }
   });
 }
@@ -158,12 +232,18 @@ function generateFrame(webContents: Electron.WebContents, session: SessionState)
   const frame = session.encoder.nextFrame();
   const payload = serializeFrame(frame);
   
-  session.activeTransfer.framesGenerated++;
-  const stats = {
-    framesGenerated: session.activeTransfer.framesGenerated,
+  const transfer = session.activeTransfer;
+  transfer.framesGenerated++;
+  const activeElapsedMs = transfer.elapsedActiveMs + (
+    transfer.activeSinceMs === null ? 0 : performance.now() - transfer.activeSinceMs
+  );
+  const elapsedMs = Math.max(0, Math.round(activeElapsedMs));
+  const stats: TransferStats = {
+    framesGenerated: transfer.framesGenerated,
     sourceBlocks: session.encoder.getBlockCount(),
-    elapsedMs: Date.now() - session.activeTransfer.startTime,
-    currentFps: 30 // hardcoded estimate for now
+    elapsedMs,
+    targetFps: DEFAULT_OPTICAL_TRANSFER_FPS,
+    effectiveFps: elapsedMs > 0 ? transfer.framesGenerated * 1_000 / elapsedMs : 0,
   };
 
   webContents.send(`transfer:frame:${session.id}`, payload, stats);
@@ -208,4 +288,11 @@ function loopbackFrame(webContents: Electron.WebContents, session: SessionState,
   }
 
   webContents.send(`loopback:stats:${session.id}`, stats);
+
+  // Send final state before releasing the container bytes. The renderer may
+  // follow completion with an idempotent cancel request, which then observes
+  // the session as already removed.
+  if (isComplete) {
+    globalSessionManager.removeSession(session.id);
+  }
 }

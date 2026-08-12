@@ -4,6 +4,7 @@ import { ErrorCode } from '../../src/shared/errors';
 import * as fs from 'fs';
 import * as path from 'path';
 import { dialog } from 'electron';
+import { deserializeContainer } from '../../src/core/container';
 
 // Mock electron
 vi.mock('electron', () => {
@@ -45,6 +46,11 @@ describe('Main Process: Session Manager', () => {
     
     const session = globalSessionManager.getSession(result!.sessionId);
     expect(session.filepath).toBe(dummyPath);
+    const container = deserializeContainer(session.payload);
+    expect(container.metadata.filename).toBe('dummy.txt');
+    expect(container.metadata.originalSize).toBe(11);
+    expect(container.payload.toString('utf8')).toBe('hello world');
+    expect(container.metadata.sha256.toString('hex')).toBe(result!.metadata.sha256);
     
     fs.unlinkSync(dummyPath);
   });
@@ -62,5 +68,9 @@ describe('Main Process: Session Manager', () => {
 
   it('throws when getting non-existent session', () => {
     expect(() => globalSessionManager.getSession(999)).toThrow(/Session not found/);
+  });
+
+  it('returns undefined when finding a non-existent session for idempotent cancellation', () => {
+    expect(globalSessionManager.findSession(999)).toBeUndefined();
   });
 });

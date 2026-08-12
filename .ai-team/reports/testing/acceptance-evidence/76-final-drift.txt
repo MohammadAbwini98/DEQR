@@ -1,0 +1,6 @@
+﻿
+> deqr@0.1.0 drift-check
+> node scripts/ai/check-adapter-drift.js
+
+Checking vendor adapters for documentation drift...
+DRIFT CHECK PASSED: Zero vendor adapter drift detected.

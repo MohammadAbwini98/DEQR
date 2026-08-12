@@ -1,0 +1,11 @@
+﻿ARTIFACT D:\Projects\DEQR-ios2\release\win-unpacked\deqr.exe
+FUSE_WIRE_VERSION 1
+FUSE RunAsNode = DISABLE [PASS]
+FUSE EnableCookieEncryption = ENABLE [PASS]
+FUSE EnableNodeOptionsEnvironmentVariable = DISABLE [PASS]
+FUSE EnableNodeCliInspectArguments = DISABLE [PASS]
+FUSE EnableEmbeddedAsarIntegrityValidation = ENABLE [PASS]
+FUSE OnlyLoadAppFromAsar = ENABLE [PASS]
+FUSE LoadBrowserProcessSpecificV8Snapshot = DISABLE [NOT_REQUIRED]
+FUSE GrantFileProtocolExtraPrivileges = ENABLE [NOT_REQUIRED]
+FUSE_VERDICT PASS

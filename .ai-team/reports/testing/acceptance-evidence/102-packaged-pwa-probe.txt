@@ -1,0 +1,8 @@
+﻿GET /  status=200  servesShell=true  bytes=1371
+  frame-ancestors header: true
+  x-content-type-options: nosniff
+  permissions-policy: camera=(self), microphone=(), geolocation=()
+GET /manifest.webmanifest  status=200  bytes=586  type=application/manifest+json; charset=utf-8
+GET /sw.js  status=200  bytes=1541  type=text/javascript; charset=utf-8
+GET /icons/deqr-192.png  status=200  bytes=2689  type=image/png
+GET /icons/deqr.svg  status=200  bytes=395  type=image/svg+xml

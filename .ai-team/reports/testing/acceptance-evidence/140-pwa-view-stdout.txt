@@ -1,0 +1,4 @@
+
+DEQR_PWA_HOST_READY port=5174 certificate=stored interfaces=2
+DEQR_RENDERER_LOAD_FINISHED source=packaged-file
+DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available

@@ -1,5 +1,5 @@
 {
-  "active_assignments": [
+  "completed_assignments": [
     {
       "task_id": "TSK-000",
       "title": "Multi-Agent System Architecture Initialization",
@@ -21,6 +21,188 @@
         "8 operational workflows created",
         "Vendor adapters generated",
         "Doctor validator passing"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-OPS-002",
+      "title": "Electron startup remediation and WEB-IOS hardening",
+      "role": "project-manager",
+      "status": "CONDITIONAL_PASS",
+      "owned_files": [
+        "PM: .ai-team/project-control/*",
+        "Architect: .ai-team/engineering/ARCHITECTURE.md",
+        "Security: .ai-team/reports/security/*",
+        "Back-end: src/main/*, scripts/run-local.ps1, RUN-LOCAL.md",
+        "Front-end: src/renderer/*, mobile-web/*, Vite configs",
+        "QA: tests/*, mobile-web/tests/*, .ai-team/reports/testing/*"
+      ],
+      "acceptance_criteria": [
+        "Independent root-cause, security, data, UX, architecture, and QA reviews",
+        "Three clean local launcher modes produce dashboard/preload readiness and clean child processes",
+        "Automated tests, builds, type checks, and doctor pass",
+        "Physical iPhone and packaged acceptance remain explicitly open"
+      ]
+    }
+  ],
+  "active_assignments": [
+    {
+      "task_id": "DESKTOP-PWA-HOST-005",
+      "title": "Packaged desktop app publishes the iPhone receiver",
+      "role": "project-manager",
+      "status": "PASS_HOST_SIDE_DEVICE_VALIDATION_OPEN",
+      "owned_files": [
+        "Back-end: src/main/pwa-host.ts, src/main/pwa-certificate.ts, src/main/lan-addresses.ts",
+        "Front-end: src/renderer/components/PwaHostCard.tsx, src/renderer/styles/index.css",
+        "Packaging: package.json, mobile-web/vite.config.ts",
+        "QA: tests/main/pwa-host.test.ts, tests/main/package-security-contract.test.ts"
+      ],
+      "acceptance_criteria": [
+        "PASS: packaged app serves the receiver from inside app.asar over LAN HTTPS with no development server",
+        "PASS: dashboard advertises the LAN URL as a scannable QR code and as text",
+        "PASS: certificate generated once and reused, so the iPhone trusts it a single time",
+        "PASS: read-only GET/HEAD server confined to the served directory; traversal encodings rejected",
+        "PASS: receiver CSP delivered as a real response header so frame-ancestors is enforced",
+        "PASS: hosting failure leaves the desktop sender usable with a redacted message",
+        "NOT EXECUTED: installing and running the receiver from this hosted origin on a physical iPhone"
+      ]
+    },
+    {
+      "task_id": "DESKTOP-SEC-050",
+      "title": "Packaged Electron artifact security and runtime acceptance",
+      "role": "project-manager",
+      "status": "CONDITIONAL_PACKAGED_OPTICAL_TRANSFER_NOT_EXECUTED",
+      "owned_files": [
+        "Back-end: scripts/ci/*, src/main/*",
+        "QA: tests/main/*, .ai-team/reports/testing/*",
+        "Security: packaged artifact inspection only"
+      ],
+      "acceptance_criteria": [
+        "PASS: intended package produced; artifact SHA-256 recorded",
+        "PASS: packaged app starts, renderer loads, preload loads, no blank window",
+        "PASS: ASAR structure verified; nothing unintentionally unpacked",
+        "PASS: fuse states read directly from the built executable, not from configuration",
+        "PASS: ASAR integrity independently verified by targeted tamper testing",
+        "PASS: packaged CSP verified with no development allowance and no inline script",
+        "PASS: runtime network isolation verified; zero blocked-request warnings",
+        "PASS: permission policy and renderer/preload boundary verified",
+        "PASS: clean exit and port/process cleanup",
+        "NOT EXECUTED: packaged optical sender against a physical iPhone"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-10",
+      "title": "Physical iPhone PWA acceptance",
+      "role": "quality-assurance-engineer",
+      "status": "BLOCKED_NO_PHYSICAL_DEVICE",
+      "owned_files": [
+        "QA: .ai-team/reports/testing/*",
+        "Fixtures: .local-run/acceptance-fixtures/*"
+      ],
+      "acceptance_criteria": [
+        "NOT EXECUTED: every criterion in the physical acceptance matrix",
+        "Blocker: no physical iPhone was available to the executing session",
+        "Prepared: deterministic 5 KiB-1 MiB and representative-extension fixtures with recorded SHA-256 digests",
+        "Prepared: launcher advertises the PWA over LAN HTTPS with a SAN-covered host",
+        "Gate must not be marked PASS or CONDITIONAL until device evidence exists"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003",
+      "title": "Apple UX and iOS optical performance remediation validation",
+      "role": "project-manager",
+      "status": "NOT_ACCEPTED_PHYSICAL_AND_PACKAGED_GATES_OPEN",
+      "owned_files": [
+        "PM: .ai-team/project-control/*",
+        "Specialists: read-only validation of the existing dirty tree"
+      ],
+      "acceptance_criteria": [
+        "Mandatory design-reference provenance verified or reported missing",
+        "Current PWA hot-path implementation and benchmark evidence independently assessed",
+        "Desktop/PWA interoperability and security gates re-executed",
+        "Physical-iPhone and packaged-runtime limitations reported without inference",
+        "No existing implementation file overwritten during validation"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-A",
+      "title": "Architecture and performance evidence audit",
+      "role": "system-architect",
+      "status": "COMPLETED",
+      "access": "read-and-test-only",
+      "owned_files": []
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-B",
+      "title": "Apple UI UX and motion audit",
+      "role": "ui-ux-designer",
+      "status": "COMPLETED",
+      "access": "read-only",
+      "owned_files": []
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-C",
+      "title": "QA security and interoperability gate",
+      "role": "quality-assurance-engineer",
+      "status": "CONDITIONAL_PASS",
+      "access": "read-and-test-only",
+      "owned_files": []
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-D",
+      "title": "Bounded PWA Apple UX accessibility and motion remediation",
+      "role": "frontend-engineer",
+      "status": "COMPLETED",
+      "access": "workspace-write",
+      "owned_files": [
+        "mobile-web/src/App.tsx",
+        "mobile-web/src/styles.css",
+        "mobile-web/index.html",
+        "mobile-web/public/manifest.webmanifest",
+        "mobile-web/tests/*"
+      ],
+      "acceptance_criteria": [
+        "Dedicated concise live status without high-frequency subtree announcements",
+        "Focus follows major receiver state transitions",
+        "Known light-theme text contrast combinations meet WCAG AA",
+        "All four safe areas are additive and the mobile action area tolerates text growth",
+        "Press feedback uses the supplied 100-160ms strong ease-out motion rule and reduced motion remains safe",
+        "PWA tests and typecheck pass without changing protocol bytes or camera hot-path behavior"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-E",
+      "title": "Bounded Electron Apple UX accessibility and receive-flow remediation",
+      "role": "frontend-engineer",
+      "status": "COMPLETED",
+      "access": "workspace-write",
+      "owned_files": [
+        "src/renderer/*",
+        "tests/renderer/*"
+      ],
+      "acceptance_criteria": [
+        "Preparing, verifying, completed, and failure states never render a blank content area",
+        "Desktop camera permission follows an explicit action and failures are inline and recoverable",
+        "Major screen focus and cancellation confirmation are accessible",
+        "Known desktop contrast and motion-easing failures are corrected",
+        "High-frequency camera and sender statistics remain coalesced away from React and live regions",
+        "Renderer tests and typecheck pass without changing IPC or protocol contracts"
+      ]
+    },
+    {
+      "task_id": "WEB-IOS-UXPERF-003-F",
+      "title": "Existing DEQR logo platform export and small-size verification",
+      "role": "branding-designer",
+      "status": "COMPLETED",
+      "access": "bounded-write",
+      "owned_files": [
+        "mobile-web/public/icons/*"
+      ],
+      "acceptance_criteria": [
+        "Existing DEQR SVG remains unchanged",
+        "Self-contained PNG exports exist at 16, 32, 64, 180, 192, and 512 pixels",
+        "Every PNG has exact dimensions and nonempty content",
+        "Small-size legibility is visually inspected",
+        "No source, manifest, project-control, or unrelated file changes"
       ]
     }
   ]

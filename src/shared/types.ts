@@ -38,7 +38,8 @@ export interface TransferStats {
   framesGenerated: number;
   sourceBlocks: number;
   elapsedMs: number;
-  currentFps: number;
+  targetFps: number;
+  effectiveFps: number;
 }
 
 export interface LoopbackOptions {
@@ -53,6 +54,26 @@ export interface LoopbackStats {
   isComplete: boolean;
   verificationPassed: boolean;
   hashMatched: boolean;
+}
+
+export interface PwaHostAddressView {
+  address: string;
+  interfaceName: string;
+  /** `overlay` is a mesh-VPN address such as Tailscale. */
+  kind: 'overlay' | 'private' | 'other';
+  url: string;
+}
+
+export interface PwaHostStatusView {
+  running: boolean;
+  /** Preferred HTTPS URL for the iPhone, or null when hosting is unavailable. */
+  url: string | null;
+  /** Every address the receiver is reachable on, best candidate first. */
+  addresses: PwaHostAddressView[];
+  subjectAltNames: string[];
+  certificateSource: 'environment' | 'stored' | 'generated' | null;
+  /** Human-readable, redacted failure reason. */
+  error: string | null;
 }
 
 export interface DeqrAPI {
@@ -80,6 +101,9 @@ export interface DeqrAPI {
   };
   receive: {
     saveReceivedFile: (fileData: Uint8Array, defaultName: string) => Promise<boolean>;
+  };
+  pwaHost: {
+    getStatus: () => Promise<PwaHostStatusView>;
   };
 }
 

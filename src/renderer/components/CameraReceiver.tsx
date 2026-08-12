@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FountainDecoder } from '../../core/fountain-decoder';
 import { deserializeFrame } from '../../core/protocol';
 import { SafeDisplayMetadata } from '../../shared/types';
-// Vite syntax for worker
+import { CameraStatus, createCameraConstraints, describeCameraFailure } from '../camera-model';
 import DecoderWorker from '../workers/decoder.worker?worker';
 
 interface Props {
@@ -11,223 +11,273 @@ interface Props {
   onVerified: (payload: Uint8Array, metadata: SafeDisplayMetadata) => void;
 }
 
+interface ReceiverMetrics {
+  receivedFrames: number;
+  recoveredBlocks: number;
+}
+
+const INITIAL_METRICS: ReceiverMetrics = { receivedFrames: 0, recoveredBlocks: 0 };
+
 export default function CameraReceiver({ onCancel, onVerified }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const workerRef = useRef<Worker | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number>(0);
-  
-  const decoderRef = useRef<FountainDecoder>(new FountainDecoder());
+  const processingRef = useRef(false);
+  const activeRef = useRef(false);
+  const mountedRef = useRef(true);
+  const decoderRef = useRef(new FountainDecoder());
+  const metricsRef = useRef<ReceiverMetrics>(INITIAL_METRICS);
+  const metricsTimerRef = useRef<number | undefined>(undefined);
+  const decodedHandlerRef = useRef<(binaryData: Uint8Array) => void>(() => undefined);
+  const captureLoopRef = useRef<() => void>(() => undefined);
+  const onVerifiedRef = useRef(onVerified);
+
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
-  
-  const [receivedFrames, setReceivedFrames] = useState(0);
-  const [recoveredBlocks, setRecoveredBlocks] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isCaptureActive, setIsCaptureActive] = useState(false);
-  const [cameraStatus, setCameraStatus] = useState<'checking' | 'ready' | 'active' | 'denied' | 'unavailable' | 'error'>('checking');
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle');
+  const [cameraMessage, setCameraMessage] = useState('Camera access has not been requested.');
+  const [metrics, setMetrics] = useState<ReceiverMetrics>(INITIAL_METRICS);
 
-  // Initialize Worker and MediaDevices
   useEffect(() => {
-    workerRef.current = new DecoderWorker();
-    workerRef.current.onmessage = (e) => {
-      setIsProcessing(false);
-      const { type, binaryData } = e.data;
-      if (type === 'DECODE_SUCCESS' && binaryData) {
-        handleFrameDecoded(binaryData);
-      }
-    };
+    onVerifiedRef.current = onVerified;
+  }, [onVerified]);
 
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      setCameras(videoDevices);
-      if (videoDevices.length > 0) {
-        setSelectedCameraId(videoDevices[videoDevices.length - 1].deviceId);
-        setCameraStatus('ready');
-      } else {
-        setCameraStatus('unavailable');
-      }
-    }).catch(() => setCameraStatus('error'));
-
-    return () => {
-      if (workerRef.current) {
-        workerRef.current.onmessage = null;
-        workerRef.current.terminate();
-        workerRef.current = null;
-      }
-      cancelAnimationFrame(animationRef.current);
-    };
+  const stopMedia = useCallback(() => {
+    activeRef.current = false;
+    processingRef.current = false;
+    if (animationRef.current) {
+      window.cancelAnimationFrame(animationRef.current);
+      animationRef.current = 0;
+    }
+    streamRef.current?.getTracks().forEach((track) => {
+      track.enabled = false;
+      track.stop();
+    });
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
   }, []);
 
-  // Acquire the camera only after the person explicitly starts reception.
-  useEffect(() => {
-    if (!isCaptureActive || !selectedCameraId) return;
+  const publishMetrics = useCallback(() => {
+    if (metricsTimerRef.current !== undefined) {
+      window.clearTimeout(metricsTimerRef.current);
+      metricsTimerRef.current = undefined;
+    }
+    if (mountedRef.current) setMetrics({ ...metricsRef.current });
+  }, []);
 
-    let currentStream: MediaStream | null = null;
-    
-    const startStream = async () => {
-      try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: selectedCameraId ? {
-            deviceId: { exact: selectedCameraId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'environment'
-          } : { facingMode: 'environment' }
-        });
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = currentStream;
-          await videoRef.current.play();
-        }
-        setCameraStatus('active');
-      } catch (err: any) {
-        if (err.name === 'NotAllowedError') {
-          setCameraStatus('denied');
-        } else if (err.name === 'NotFoundError') {
-          setCameraStatus('unavailable');
-        } else {
-          setCameraStatus('error');
-        }
-        setIsCaptureActive(false);
-      }
+  const queueMetrics = useCallback((recoveredBlocks: number) => {
+    metricsRef.current = {
+      receivedFrames: metricsRef.current.receivedFrames + 1,
+      recoveredBlocks,
     };
-    
-    startStream();
-
-    return () => {
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => {
-          track.enabled = false;
-          track.stop();
-        });
-      }
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.srcObject = null;
-      }
-    };
-  }, [isCaptureActive, selectedCameraId]);
+    if (metricsTimerRef.current === undefined) {
+      metricsTimerRef.current = window.setTimeout(publishMetrics, 200);
+    }
+  }, [publishMetrics]);
 
   const handleFrameDecoded = useCallback((binaryData: Uint8Array) => {
+    if (!activeRef.current) return;
     try {
       const frame = deserializeFrame(Buffer.from(binaryData));
       const isComplete = decoderRef.current.receiveFrame(frame);
-      setReceivedFrames(prev => prev + 1);
-      setRecoveredBlocks(decoderRef.current.getSolvedCount());
+      queueMetrics(decoderRef.current.getSolvedCount());
 
       if (isComplete) {
-        // We pass the full container buffer up. Main process will deserialize it and verify hash.
         const containerBuffer = decoderRef.current.reconstructPayload();
-        
-        onVerified(containerBuffer, { 
-          filename: 'received_transfer.deqr', // This is a placeholder; Main extracts the real one
-          size: containerBuffer.length, 
-          compressed: false, 
-          mimeType: 'application/octet-stream', 
-          extension: '.deqr' 
+        publishMetrics();
+        stopMedia();
+        onVerifiedRef.current(containerBuffer, {
+          filename: 'received_transfer.deqr',
+          size: containerBuffer.length,
+          compressed: false,
+          mimeType: 'application/octet-stream',
+          extension: '.deqr',
         });
       }
-    } catch (e) {
-      console.warn('Frame processing failed', e);
+    } catch {
+      // Invalid or unrelated camera frames are expected while scanning.
     }
-  }, [onVerified]);
-
-  const stopCapture = () => {
-    setIsProcessing(false);
-    setIsCaptureActive(false);
-    setCameraStatus((currentStatus) => currentStatus === 'active' ? 'ready' : currentStatus);
-  };
-
-  // Main capture loop
-  const captureLoop = useCallback(() => {
-    if (isCaptureActive && videoRef.current && canvasRef.current && !isProcessing) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          
-          setIsProcessing(true);
-          workerRef.current?.postMessage({
-            type: 'DECODE',
-            id: Date.now(),
-            imageData: imageData.data,
-            width: imageData.width,
-            height: imageData.height
-          });
-        }
-      }
-    }
-    
-    animationRef.current = requestAnimationFrame(captureLoop);
-  }, [isCaptureActive, isProcessing]);
+  }, [publishMetrics, queueMetrics, stopMedia]);
 
   useEffect(() => {
-    animationRef.current = requestAnimationFrame(captureLoop);
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [captureLoop]);
+    decodedHandlerRef.current = handleFrameDecoded;
+  }, [handleFrameDecoded]);
+
+  captureLoopRef.current = () => {
+    if (!activeRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (video && canvas && !processingRef.current && video.readyState >= video.HAVE_CURRENT_DATA) {
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (context && canvas.width > 0 && canvas.height > 0) {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        processingRef.current = true;
+        workerRef.current?.postMessage({
+          type: 'DECODE',
+          id: Date.now(),
+          imageData: imageData.data,
+          width: imageData.width,
+          height: imageData.height,
+        });
+        if (!workerRef.current) processingRef.current = false;
+      }
+    }
+
+    animationRef.current = window.requestAnimationFrame(() => captureLoopRef.current());
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const worker = new DecoderWorker();
+    workerRef.current = worker;
+    worker.onmessage = (event) => {
+      processingRef.current = false;
+      const { type, binaryData } = event.data as { type?: string; binaryData?: Uint8Array };
+      if (type === 'DECODE_SUCCESS' && binaryData) decodedHandlerRef.current(binaryData);
+    };
+    worker.onerror = () => {
+      processingRef.current = false;
+      if (mountedRef.current && activeRef.current) {
+        stopMedia();
+        setCameraStatus('error');
+        setCameraMessage('Camera decoding stopped unexpectedly. Start the camera again to retry.');
+      }
+    };
+
+    return () => {
+      mountedRef.current = false;
+      stopMedia();
+      if (metricsTimerRef.current !== undefined) window.clearTimeout(metricsTimerRef.current);
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, [stopMedia]);
+
+  const startCamera = async () => {
+    stopMedia();
+    decoderRef.current = new FountainDecoder();
+    metricsRef.current = INITIAL_METRICS;
+    setMetrics(INITIAL_METRICS);
+    setCameraStatus('requesting');
+    setCameraMessage('Waiting for camera permission.');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraStatus('unavailable');
+      setCameraMessage('Camera access is unavailable in this environment.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: createCameraConstraints(selectedCameraId, permissionGranted),
+      });
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) throw new Error('Camera preview is unavailable.');
+      video.srcObject = stream;
+      await video.play();
+
+      setPermissionGranted(true);
+      const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter((device) => device.kind === 'videoinput');
+        if (mountedRef.current) {
+          setCameras(videoDevices);
+          if (deviceId && videoDevices.some((device) => device.deviceId === deviceId)) {
+            setSelectedCameraId(deviceId);
+          }
+        }
+      } catch {
+        // The active facing-mode stream remains usable if enumeration is unavailable.
+      }
+
+      activeRef.current = true;
+      setCameraStatus('active');
+      setCameraMessage('Camera active. Hold the animated QR code inside the guide.');
+      animationRef.current = window.requestAnimationFrame(() => captureLoopRef.current());
+    } catch (caught) {
+      stopMedia();
+      if (!mountedRef.current) return;
+      const failure = describeCameraFailure(caught);
+      setCameraStatus(failure.status);
+      setCameraMessage(failure.message);
+    }
+  };
+
+  const stopCamera = () => {
+    stopMedia();
+    setCameraStatus('idle');
+    setCameraMessage('Camera stopped. Start it again when you are ready.');
+  };
+
+  const isError = cameraStatus === 'denied' || cameraStatus === 'unavailable' || cameraStatus === 'error';
+  const canStart = cameraStatus === 'idle' || isError;
 
   return (
-    <section className="card" aria-labelledby="receive-title">
-      <h2 id="receive-title">Receive Transfer</h2>
-      <p style={{ color: 'var(--text-secondary)' }}>
-        Start the camera only when you are ready to scan a local DEQR QR stream.
-      </p>
-      
-      {cameras.length > 1 && (
-        <label>
-          Camera
+    <section className="receiver-view" aria-labelledby="receiver-heading">
+      <header className="section-heading">
+        <p className="eyebrow">Desktop receiver</p>
+        <h1 id="receiver-heading" data-screen-heading tabIndex={-1}>Scan an optical stream</h1>
+        <p>The camera stays off until you start it. A reconstructed container must pass main-process verification before a save can be reported.</p>
+      </header>
+
+      {permissionGranted && cameras.length > 1 && (
+        <label className="camera-select-label">
+          <span>Camera</span>
           <select
             value={selectedCameraId}
-            onChange={(e) => setSelectedCameraId(e.target.value)}
-            disabled={isCaptureActive}
-            style={{ display: 'block', marginTop: '6px', padding: '8px' }}
+            onChange={(event) => setSelectedCameraId(event.target.value)}
+            disabled={cameraStatus === 'active' || cameraStatus === 'requesting'}
           >
-            {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label || 'Camera'}</option>)}
+            {cameras.map((camera, index) => (
+              <option key={camera.deviceId} value={camera.deviceId}>{camera.label || `Camera ${index + 1}`}</option>
+            ))}
           </select>
         </label>
       )}
 
-      <div className="camera-surface" aria-label="Camera preview and QR alignment area">
-        <video ref={videoRef} playsInline muted aria-hidden="true" style={{ display: 'none' }}></video>
-        <canvas ref={canvasRef} aria-label="Live camera preview"></canvas>
-        <div className="camera-alignment-guide" aria-hidden="true"></div>
+      <p className={isError ? 'camera-status error-banner' : 'camera-status'} role={isError ? 'alert' : 'status'} aria-live="polite">
+        {cameraMessage}
+      </p>
+
+      <div className={`camera-stage camera-stage--${cameraStatus}`}>
+        <video ref={videoRef} playsInline muted className="visually-hidden" aria-hidden="true" />
+        <canvas ref={canvasRef} className="camera-canvas" aria-label="Live camera preview for DEQR QR scanning" />
+        <div className="camera-guide" aria-hidden="true" />
+        {cameraStatus !== 'active' && <p className="camera-placeholder" aria-hidden="true">Camera preview is off</p>}
       </div>
 
-      <div className={`status-message${cameraStatus === 'denied' || cameraStatus === 'unavailable' || cameraStatus === 'error' ? ' error' : ''}`} role={cameraStatus === 'denied' || cameraStatus === 'unavailable' || cameraStatus === 'error' ? 'alert' : 'status'}>
-        {cameraStatus === 'checking' && 'Checking for an available camera…'}
-        {cameraStatus === 'ready' && 'Camera is ready. Select Start Camera to begin capture.'}
-        {cameraStatus === 'active' && 'Camera capture is active. Keep the sender QR inside the alignment guide.'}
-        {cameraStatus === 'denied' && 'Camera access was denied. Allow camera access in system settings, then try again.'}
-        {cameraStatus === 'unavailable' && 'No compatible camera is available.'}
-        {cameraStatus === 'error' && 'The camera could not be started. Check the camera and try again.'}
-      </div>
-      
-      <div style={{ width: '100%', marginTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
-        <div>
-          <strong>Received Frames:</strong> {receivedFrames}
-        </div>
-        <div>
-          <strong>Recovered Blocks:</strong> {recoveredBlocks}
-        </div>
-      </div>
+      <dl className="receiver-metrics" aria-label="Receiver metrics">
+        <div><dt>Frames received</dt><dd>{metrics.receivedFrames}</dd></div>
+        <div><dt>Blocks recovered</dt><dd>{metrics.recoveredBlocks}</dd></div>
+      </dl>
 
-      <div className="button-row">
-        {!isCaptureActive ? (
-          <button className="primary" onClick={() => setIsCaptureActive(true)} disabled={!selectedCameraId || cameraStatus === 'unavailable'}>
-            Start Camera
-          </button>
-        ) : (
-          <button onClick={stopCapture}>Stop Camera</button>
-        )}
-        <button className="danger" onClick={onCancel}>Cancel Reception</button>
+      <div className="action-row">
+        {canStart && <button className="primary" onClick={startCamera}>{isError ? 'Try camera again' : 'Start camera'}</button>}
+        {cameraStatus === 'requesting' && <button className="primary" disabled>Requesting camera…</button>}
+        {cameraStatus === 'active' && <button className="secondary" onClick={stopCamera}>Stop camera</button>}
+        <button className="danger" onClick={onCancel}>Cancel reception</button>
       </div>
     </section>
   );

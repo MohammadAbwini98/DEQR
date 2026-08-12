@@ -1,78 +1,99 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { TransferStats } from '../../shared/types';
-import { getQrRasterSize } from '../ui-model';
 
 interface Props {
   sessionId: number;
+  fileName: string;
   onCancel: () => void;
 }
 
-export default function QRCanvas({ sessionId, onCancel }: Props) {
+function formatElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`;
+}
+
+export default function QRCanvas({ sessionId, fileName, onCancel }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasFrameRef = useRef<HTMLDivElement>(null);
   const [stats, setStats] = useState<TransferStats | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [canvasDisplaySize, setCanvasDisplaySize] = useState(400);
-  const [devicePixelRatio, setDevicePixelRatio] = useState(() => window.devicePixelRatio || 1);
-  const canvasRasterSize = getQrRasterSize(canvasDisplaySize, devicePixelRatio);
+  const [renderError, setRenderError] = useState(false);
 
   useEffect(() => {
-    if (!canvasFrameRef.current) return;
+    let disposed = false;
+    let renderInFlight = false;
+    let latestPayload: Uint8Array | null = null;
+    let latestStats: TransferStats | null = null;
+    let statsTimer: number | undefined;
 
-    const updateCanvasSize = () => {
-      const nextSize = Math.max(180, Math.min(480, Math.floor(canvasFrameRef.current?.clientWidth ?? 400)));
-      setCanvasDisplaySize((currentSize) => currentSize === nextSize ? currentSize : nextSize);
-      setDevicePixelRatio(window.devicePixelRatio || 1);
-    };
-
-    const observer = new ResizeObserver(updateCanvasSize);
-
-    observer.observe(canvasFrameRef.current);
-    window.addEventListener('resize', updateCanvasSize);
-    updateCanvasSize();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateCanvasSize);
-    };
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = window.deqr.transfer.subscribe(sessionId, async (payload, newStats) => {
-      setStats(newStats);
-      const targetCanvas = canvasRef.current;
-      if (targetCanvas) {
-        try {
-          // Render outside the document. qrcode sets inline dimensions on the
-          // canvas it receives, so handing it the visible canvas causes DPI
-          // raster dimensions to leak into layout and create scrollbars.
-          const rasterCanvas = document.createElement('canvas');
-          await QRCode.toCanvas(rasterCanvas, [{ data: payload as Uint8Array, mode: 'byte' }], {
-            errorCorrectionLevel: 'L',
-            margin: 2,
-            width: canvasRasterSize,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          });
-          targetCanvas.width = canvasRasterSize;
-          targetCanvas.height = canvasRasterSize;
-          const context = targetCanvas.getContext('2d');
-          if (!context) throw new Error('QR display canvas is unavailable.');
-          context.imageSmoothingEnabled = false;
-          context.clearRect(0, 0, canvasRasterSize, canvasRasterSize);
-          context.drawImage(rasterCanvas, 0, 0, canvasRasterSize, canvasRasterSize);
-        } catch (e) {
-          console.error('QR Render Failed:', e);
-        }
+    const flushStats = () => {
+      statsTimer = undefined;
+      if (!disposed && latestStats) {
+        setStats(latestStats);
+        latestStats = null;
       }
+    };
+
+    const queueStats = (nextStats: TransferStats) => {
+      latestStats = nextStats;
+      if (statsTimer === undefined) {
+        // Metrics are visual feedback only. Limit React updates to 5 Hz while
+        // retaining every incoming QR frame for the independent paint queue.
+        statsTimer = window.setTimeout(flushStats, 200);
+      }
+    };
+
+    // The main process may emit a new frame while qrcode is still painting the
+    // previous one. Retain only the newest payload and render serially so QR
+    // paint promises cannot queue or overwrite frames out of order.
+    const renderLatestFrame = async (): Promise<void> => {
+      if (disposed || renderInFlight) return;
+      renderInFlight = true;
+
+      try {
+        while (!disposed && latestPayload) {
+          const payload = latestPayload;
+          latestPayload = null;
+          const canvas = canvasRef.current;
+          if (!canvas) continue;
+
+          try {
+            // Byte mode is the established optical contract. Margin only
+            // controls the visual quiet zone; it never alters frame bytes.
+            await QRCode.toCanvas(canvas, [{ data: payload, mode: 'byte' }], {
+              errorCorrectionLevel: 'L',
+              margin: 4,
+              width: 400,
+              color: { dark: '#000000', light: '#ffffff' },
+            });
+            if (!disposed) setRenderError(false);
+          } catch {
+            if (!disposed) setRenderError(true);
+          }
+        }
+      } finally {
+        renderInFlight = false;
+        if (!disposed && latestPayload) void renderLatestFrame();
+      }
+    };
+
+    const unsubscribe = window.deqr.transfer.subscribe(sessionId, (payload, nextStats) => {
+      if (disposed) return;
+      queueStats(nextStats);
+      latestPayload = payload;
+      void renderLatestFrame();
     });
 
     return () => {
+      disposed = true;
+      latestPayload = null;
+      latestStats = null;
+      if (statsTimer !== undefined) window.clearTimeout(statsTimer);
       unsubscribe();
     };
-  }, [canvasDisplaySize, canvasRasterSize, sessionId]);
+  }, [sessionId]);
 
   const togglePause = async () => {
     if (isPaused) {
@@ -80,39 +101,48 @@ export default function QRCanvas({ sessionId, onCancel }: Props) {
     } else {
       await window.deqr.transfer.pause(sessionId);
     }
-    setIsPaused(!isPaused);
+    setIsPaused((paused) => !paused);
   };
 
   return (
-    <section className="card transfer-surface" aria-labelledby="transfer-title">
-      <h2 id="transfer-title">Active Transfer</h2>
-      <p style={{ color: 'var(--text-secondary)' }}>Keep this QR surface unobstructed and square for reliable scanning.</p>
-      <div className="qr-quiet-zone">
-        <div className="qr-canvas-frame" ref={canvasFrameRef}>
-          <canvas
-            ref={canvasRef}
-            width={canvasRasterSize}
-            height={canvasRasterSize}
-            aria-label="Animated DEQR transfer QR code"
-          ></canvas>
+    <section className="transfer-view" aria-labelledby="transfer-heading">
+      <header className="transfer-header">
+        <div>
+          <p className="eyebrow">Sending securely</p>
+          <h1 id="transfer-heading" data-screen-heading tabIndex={-1}>Keep this QR code in view</h1>
+          <p className="transfer-file" title={fileName}>{fileName}</p>
         </div>
-      </div>
-      
-      {stats && (
-        <div className="stats-grid" role="status" aria-live="polite">
-          <strong>Frames generated</strong><span>{stats.framesGenerated}</span>
-          <strong>Source blocks</strong><span>{stats.sourceBlocks}</span>
-          <strong>Frame rate</strong><span>{stats.currentFps} FPS</span>
-          <strong>Elapsed time</strong><span>{(stats.elapsedMs / 1000).toFixed(1)} seconds</span>
-          <strong>Transfer status</strong><span>{isPaused ? 'Paused' : 'Streaming'}</span>
-        </div>
-      )}
+        <span className={`transfer-state ${isPaused ? 'transfer-state--paused' : ''}`} role="status">
+          <span className="state-dot" aria-hidden="true" />
+          {isPaused ? 'Paused' : 'Streaming'}
+        </span>
+      </header>
 
-      <div className="button-row">
-        <button className="primary" onClick={togglePause}>
-          {isPaused ? 'Resume' : 'Pause'}
-        </button>
-        <button className="danger" onClick={onCancel}>Cancel Transfer</button>
+      <div className="qr-stage" aria-describedby="qr-guidance">
+        <canvas
+          ref={canvasRef}
+          width={400}
+          height={400}
+          className="qr-canvas"
+          role="img"
+          aria-label="Animated DEQR optical transfer QR code"
+        />
+      </div>
+      <p id="qr-guidance" className="qr-guidance">Keep the entire white boundary visible to the receiving camera. Avoid overlays or motion near the code.</p>
+
+      {renderError && <p className="error-banner transfer-error" role="alert">The QR display could not be refreshed. Pause and resume the transfer to retry.</p>}
+
+      <dl className="transfer-metrics" aria-label="Live transfer metrics">
+        <div><dt>Frames emitted</dt><dd>{stats?.framesGenerated ?? '—'}</dd></div>
+        <div><dt>Source blocks</dt><dd>{stats?.sourceBlocks ?? '—'}</dd></div>
+        <div><dt>Target cadence</dt><dd>{stats ? `${stats.targetFps.toFixed(0)} FPS` : '—'}</dd></div>
+        <div><dt>Effective cadence</dt><dd>{stats ? `${stats.effectiveFps.toFixed(1)} FPS` : '—'}</dd></div>
+        <div><dt>Active time</dt><dd>{stats ? formatElapsed(stats.elapsedMs) : '—'}</dd></div>
+      </dl>
+
+      <div className="action-row transfer-actions">
+        <button className="primary" onClick={togglePause}>{isPaused ? 'Resume stream' : 'Pause stream'}</button>
+        <button className="danger" onClick={onCancel}>Cancel transfer</button>
       </div>
     </section>
   );

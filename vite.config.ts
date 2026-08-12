@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   root: 'src/renderer',
   base: './', // important for electron
+  // Keep desktop dependency optimization isolated from the standalone PWA.
+  // Both applications use the repository dependency installation, but have
+  // different entry graphs and must never reuse transformed module URLs.
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite-desktop-renderer'),
   build: {
     outDir: '../../dist/renderer',
     emptyOutDir: true,
@@ -16,5 +20,10 @@ export default defineConfig({
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@renderer': path.resolve(__dirname, 'src/renderer'),
     },
+  },
+  optimizeDeps: {
+    // The renderer installs this browser-safe Buffer shim before importing the
+    // protocol modules. Pin it so Vite never serves a stale optimized URL.
+    include: ['buffer'],
   },
 });

@@ -1,0 +1,4 @@
+# Generated .NET and MAUI outputs. Source, test vectors, and validation
+# evidence are tracked separately.
+**/bin/
+**/obj/
