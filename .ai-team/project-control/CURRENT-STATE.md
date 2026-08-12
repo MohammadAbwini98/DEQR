@@ -23,7 +23,7 @@
 - [x] M2 Stage IOS-1 / TSK-060: Deterministic TypeScript vector generator produces 15 binary vectors plus `expected.json`, including all five systematic K=5 frames, repair frames, deterministic PRNG/Soliton expectations, and malformed-input vectors.
 - [x] M2 Stage IOS-1 / TSK-061: `DEQR.Core` C# engine targets `net10.0`; Stage IOS-1 Core Gate passed vector regeneration/reproducibility, .NET 10 restore/build, byte-parity tests, and AI doctor.
 - [x] M2 Stage IOS-1 merged via PR #2 (`3aaf0bc0b3ced96863dcbdd7a4fbb42ea8b11b65`).
-- [x] TSK-028 Desktop renderer accessibility remediation (`407a4b3`), plus the follow-up action-card contrast fix (`bcc0527`), fast-forwarded from `codex/desktop-accessibility-remediation` into local `main` (`5bc1586..bcc0527`) on 2026-08-12. **MERGED LOCALLY ONLY — NOT PUSHED; `origin/main` remains at `5bc1586`.**
+- [x] TSK-028 Desktop renderer accessibility remediation (`407a4b3`), plus the follow-up action-card contrast fix (`bcc0527`), fast-forwarded from `codex/desktop-accessibility-remediation` into `main` (`5bc1586..bcc0527`) on 2026-08-12. **MERGED AND PUSHED** — `main` was fast-forwarded to `origin/main` at `adb3491` on 2026-08-12; no history was rewritten and `main` now tracks `origin/main`.
 
 ## Defensible Status
 - Stage 4 Phase 1: PASS
@@ -68,4 +68,4 @@
 1. Begin **Milestone M2 Stage IOS-2 (TSK-062)**: scaffold the .NET MAUI 10 iOS application shell and Apple privacy/files configuration.
 2. Rebuild the Windows portable executable, confirm the renderer visually, then resume the packaged camera lifecycle and desktop physical optical-transfer gates. This retest must now also confirm the frameless window: title-bar dragging, minimize/maximize/close, and that no duplicate native header appears.
 3. Perform the outstanding TSK-028 manual accessibility pass on an unlocked desktop: title-bar drag, minimize/maximize/close, keyboard-only traversal of the cancel dialog and camera controls, focus order, and a screen-reader run.
-4. Decide whether local `main` (`bcc0527`) is pushed to `origin/main`, which is still at `5bc1586`.
+4. Rebuild and revalidate the packaged portable artifact from the pushed `main`, since the accepted Stage 4 packaging evidence predates every commit in `5bc1586..adb3491`.
