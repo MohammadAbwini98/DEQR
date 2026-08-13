@@ -15,6 +15,21 @@ export const PWA_CONTENT_SECURITY_POLICY =
 
 export const PWA_HOST_DEFAULT_PORT = 5174;
 
+/**
+ * The one path the receiver may probe to learn whether this host is reachable.
+ * It must be matched before the extensionless single-page fallback, or it would
+ * silently answer with the HTML shell and every probe would report "online".
+ */
+export const PWA_HOST_HEALTH_PATH = '/health';
+
+/**
+ * Deliberately constant. The receiver only needs "a DEQR host answered", and a
+ * reachability probe is the wrong place to publish addresses, interface names,
+ * certificate details, versions, or anything about an active transfer. Anything
+ * that can read this can already fetch `index.html`, so it discloses nothing new.
+ */
+export const PWA_HOST_HEALTH_BODY = '{"service":"deqr-pwa-host","status":"ok"}';
+
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -72,6 +87,19 @@ function securityHeaders(): Record<string, string> {
   };
 }
 
+/**
+ * Decodes exactly like `resolveRequestedFile` so a probe and a file request can
+ * never disagree about what a URL means. A query string is ignored: the PWA
+ * appends a cache-busting parameter.
+ */
+export function isHealthProbe(requestUrl: string): boolean {
+  try {
+    return decodeURIComponent(new URL(requestUrl, 'https://deqr.invalid').pathname) === PWA_HOST_HEALTH_PATH;
+  } catch {
+    return false;
+  }
+}
+
 async function readFileOrNull(filePath: string): Promise<Buffer | null> {
   try {
     return await fs.promises.readFile(filePath);
@@ -89,6 +117,22 @@ export async function handlePwaRequest(
   if (method !== 'GET' && method !== 'HEAD') {
     response.writeHead(405, { Allow: 'GET, HEAD', ...securityHeaders() });
     response.end();
+    return;
+  }
+
+  // Answered before any file resolution so the single-page fallback can never
+  // shadow it. `no-store` matters as much as the body: a cached 200 would make
+  // a stopped receiver look reachable, which is the exact failure this exists
+  // to rule out.
+  if (isHealthProbe(request.url ?? '/')) {
+    const body = Buffer.from(PWA_HOST_HEALTH_BODY, 'utf8');
+    response.writeHead(200, {
+      ...securityHeaders(),
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': String(body.byteLength),
+      'Cache-Control': 'no-store',
+    });
+    response.end(method === 'HEAD' ? undefined : body);
     return;
   }
 

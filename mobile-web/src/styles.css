@@ -124,11 +124,58 @@ button.danger {
   font-weight: 700;
 }
 
+/* Reachability of the desktop host, which is not the same fact as this app
+   being open: an installed receiver is meant to launch with no host at all. */
+.host-chip {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid rgba(197, 209, 224, .9);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  color: var(--supporting-text);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.host-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #8a99ad;
+}
+
+.host-online { border-color: #9ad3b4; color: #1c6641; background: #f1fbf5; }
+.host-online .host-dot { background: #2f9e63; }
+.host-unavailable { border-color: #e0b7a2; color: #8a4a1e; background: #fdf6f0; }
+.host-unavailable .host-dot { background: #c9702c; }
+
+/* The guidance line is conditional, so the header owns the spacing only when
+   it is the last thing before the content. */
+.topbar:has(+ .host-detail) { margin-bottom: 13px; }
+
+.host-detail {
+  margin: 0 0 clamp(18px, 4vh, 34px);
+  font-size: .84rem;
+}
+
 .card {
   border: 1px solid rgba(197, 209, 224, .9);
   border-radius: 24px;
   background: rgba(255, 255, 255, .92);
   box-shadow: 0 14px 42px rgba(32, 49, 69, .08);
+}
+
+/* The home screen fills whatever the header block leaves rather than
+   subtracting an assumed header height: that block is now one row taller
+   whenever the receiver is unreachable and the guidance line appears. */
+.app-shell:has(> .home-screen) {
+  display: flex;
+  flex-direction: column;
 }
 
 .home-screen {
@@ -139,6 +186,11 @@ button.danger {
   justify-items: start;
   gap: 17px;
   padding-bottom: 18px;
+}
+
+.app-shell:has(> .home-screen) .home-screen {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .home-mark {
@@ -461,7 +513,12 @@ dd {
   background: rgba(244, 247, 251, .92);
 }
 
-.action-dock .primary { grid-column: 1 / -1; }
+/* The dock is a two-column row for a pair of peers. A primary action outranks
+   that and takes the full width — and so must whatever follows it, or the
+   trailing secondary is stranded in the 1.3fr track with dead space beside it
+   and stops reading as part of the same pair. */
+.action-dock .primary,
+.action-dock .primary ~ button { grid-column: 1 / -1; }
 
 @media (min-width: 520px) {
   .app-shell { padding-right: calc(28px + env(safe-area-inset-right)); padding-left: calc(28px + env(safe-area-inset-left)); }
@@ -498,6 +555,11 @@ dd {
   body { background: #0d141d; }
   button { border-color: #38495c; color: #edf3fa; background: #182431; box-shadow: none; }
   button.danger { border-color: #9f5258; color: #ffb4b7; background: #31191e; }
+  .host-chip { border-color: #38495c; color: #aebdcd; background: #182431; }
+  .host-online { border-color: #2f6a4c; color: #8ce0b2; background: #14261d; }
+  .host-online .host-dot { background: #57cf90; }
+  .host-unavailable { border-color: #7a5233; color: #f2bd8c; background: #2a1d13; }
+  .host-unavailable .host-dot { background: #e0954f; }
   .brand strong,
   h1 { color: #edf3fa; }
   .brand small,

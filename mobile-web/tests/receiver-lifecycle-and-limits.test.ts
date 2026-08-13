@@ -78,6 +78,7 @@ describe('PWA ReceiverSession bounds and terminal lifecycle', () => {
       receivedBlocks: 0,
       totalBlocks: 0,
       duplicates: 0,
+      foreignFrames: 0,
       error: undefined,
       verified: undefined,
     });

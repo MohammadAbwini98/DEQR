@@ -106,7 +106,7 @@ class FountainDecoder {
 }
 
 export type ReceiverState = 'READY' | 'RECEIVING' | 'VERIFYING' | 'COMPLETE' | 'FAILED' | 'CANCELLED';
-export interface ReceiverSnapshot { state: ReceiverState; filename?: string; receivedBlocks: number; totalBlocks: number; duplicates: number; error?: DeqrProtocolError; verified?: VerifiedFile; }
+export interface ReceiverSnapshot { state: ReceiverState; filename?: string; receivedBlocks: number; totalBlocks: number; duplicates: number; foreignFrames: number; error?: DeqrProtocolError; verified?: VerifiedFile; }
 export interface VerifiedFile { filename: string; mimeType: string; bytes: Uint8Array; sha256: Uint8Array; }
 
 export class ReceiverSession {
@@ -157,7 +157,11 @@ export class ReceiverSession {
   private releaseDecoder(): void { this.decoder.dispose(); this.decoder = new FountainDecoder(); }
   private clear(): void { this.generation++; this.verification = undefined; this.releaseDecoder(); this.verified?.bytes.fill(0); this.verified?.sha256.fill(0); this.duplicates = 0; this.foreignFrames = 0; this.activeSession = undefined; this.error = undefined; this.verified = undefined; this.progressState = { solved: 0, total: 0 }; }
   private failed(error: DeqrProtocolError): ReceiverSnapshot { this.generation++; this.verification = undefined; this.releaseDecoder(); this.verified?.bytes.fill(0); this.verified?.sha256.fill(0); this.verified = undefined; this.error = error; this.state = 'FAILED'; return this.snapshot(); }
-  snapshot(): ReceiverSnapshot { return { state: this.state, filename: this.verified?.filename, receivedBlocks: this.progressState.solved, totalBlocks: this.progressState.total, duplicates: this.duplicates, error: this.error, verified: this.verified }; }
+  // `foreignFrames` is reported, not acted on. A session that latches onto one
+  // transfer and then silently discards a second one looks identical to a dead
+  // scanner; adopting the new session instead would quietly drop the isolation
+  // guarantee, so the receiver surfaces the count and leaves the choice to reset.
+  snapshot(): ReceiverSnapshot { return { state: this.state, filename: this.verified?.filename, receivedBlocks: this.progressState.solved, totalBlocks: this.progressState.total, duplicates: this.duplicates, foreignFrames: this.foreignFrames, error: this.error, verified: this.verified }; }
 }
 
 async function inflateGzip(payload: Uint8Array, expectedSize: number): Promise<Uint8Array> {

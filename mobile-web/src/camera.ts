@@ -23,7 +23,7 @@ export class CameraController {
   private videoFrameHandle?: number;
   private inFlight = false;
   private generation = 0;
-  private readonly decoder = new RawQrDecoder();
+  private readonly decoder = new RawQrDecoder(() => this.onError('QR_SCANNER_UNAVAILABLE'));
   private context?: CanvasRenderingContext2D;
   private canvasWidth = 0;
   private canvasHeight = 0;

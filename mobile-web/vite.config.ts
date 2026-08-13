@@ -24,6 +24,11 @@ export default defineConfig({
     outDir: path.resolve(__dirname, '../dist/pwa'),
     emptyOutDir: true,
   },
+  // The decoder is constructed as `{ type: 'module' }`. Vite's default worker
+  // format is `iife`, which emitted a classic script behind a module
+  // constructor — tolerated by Chromium, but not a contract worth relying on
+  // for the one code path the whole receiver depends on.
+  worker: { format: 'es' },
   server: {
     host: '0.0.0.0',
     port: 5174,

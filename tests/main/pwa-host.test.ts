@@ -3,8 +3,11 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   PWA_CONTENT_SECURITY_POLICY,
+  PWA_HOST_HEALTH_BODY,
   contentTypeFor,
   failedPwaHostStatus,
+  handlePwaRequest,
+  isHealthProbe,
   getPwaHostStatus,
   resetPwaHostStatus,
   resolveRequestedFile,
@@ -110,6 +113,76 @@ describe('PWA host security policy', () => {
     expect(PWA_CONTENT_SECURITY_POLICY).toContain("script-src 'self'");
     expect(PWA_CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     expect(PWA_CONTENT_SECURITY_POLICY).not.toContain('unsafe-eval');
+  });
+});
+
+describe('PWA host health probe', () => {
+  const respond = async (url: string, method = 'GET') => {
+    const written: { status?: number; headers?: Record<string, string> } = {};
+    let body: unknown;
+    const response = {
+      headersSent: false,
+      writeHead(status: number, headers: Record<string, string>) {
+        written.status = status;
+        written.headers = headers;
+        this.headersSent = true;
+      },
+      end(chunk?: unknown) { body = chunk; },
+    };
+    await handlePwaRequest(ROOT, { method, url } as never, response as never);
+    return { ...written, body };
+  };
+
+  it.each(['/health', '/health?t=1', '/%68ealth'])('answers %s with the constant marker', async (url) => {
+    expect(isHealthProbe(url)).toBe(true);
+
+    const result = await respond(url);
+    expect(result.status).toBe(200);
+    expect(result.headers?.['Content-Type']).toBe('application/json; charset=utf-8');
+    expect(String(result.body)).toBe(PWA_HOST_HEALTH_BODY);
+    expect(JSON.parse(String(result.body))).toEqual({ service: 'deqr-pwa-host', status: 'ok' });
+  });
+
+  it('forbids caching, so a stopped receiver can never look reachable', async () => {
+    const result = await respond('/health');
+    expect(result.headers?.['Cache-Control']).toBe('no-store');
+  });
+
+  it('carries the same security headers as every other response', async () => {
+    const result = await respond('/health');
+    expect(result.headers?.['Content-Security-Policy']).toBe(PWA_CONTENT_SECURITY_POLICY);
+    expect(result.headers?.['X-Content-Type-Options']).toBe('nosniff');
+    expect(result.headers?.['Referrer-Policy']).toBe('no-referrer');
+  });
+
+  it('publishes no address, interface, certificate, or transfer detail', () => {
+    // A reachability probe answers one question. Anything else here would be
+    // new disclosure on an interface reachable by the whole local network.
+    expect(PWA_HOST_HEALTH_BODY.length).toBeLessThan(80);
+    expect(PWA_HOST_HEALTH_BODY).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+    // `deqr-pwa-host` is the fixed service name and identifies nothing.
+    for (const term of ['cert', 'key', 'san', 'path', 'user', 'session', 'file', 'port', 'version', 'hostname']) {
+      expect(PWA_HOST_HEALTH_BODY.toLowerCase()).not.toContain(term);
+    }
+  });
+
+  it('answers HEAD without a body and refuses a write method', async () => {
+    const head = await respond('/health', 'HEAD');
+    expect(head.status).toBe(200);
+    expect(head.body).toBeUndefined();
+
+    const post = await respond('/health', 'POST');
+    expect(post.status).toBe(405);
+  });
+
+  it('is not shadowed by, and does not shadow, the single-page fallback', async () => {
+    expect(isHealthProbe('/healthz')).toBe(false);
+    expect(isHealthProbe('/health/sub')).toBe(false);
+    expect(isHealthProbe('/HEALTH')).toBe(false);
+    expect(isHealthProbe('/api/health')).toBe(false);
+    // Without the early return these would resolve to a file under the served
+    // directory and answer 200 with the HTML shell.
+    expect(resolveRequestedFile(ROOT, '/health')).toBe(path.join(ROOT, 'health'));
   });
 });
 

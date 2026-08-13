@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CameraController, type CameraMetrics } from './camera';
 import { exportVerifiedFile } from './export';
+import { HostMonitor, hostStatusCopy, type HostStatus } from './host-status';
 import { ReceiverSession, type ReceiverSnapshot } from './protocol';
 
 const VERSION = 'web-pwa-0.1.0';
 const SNAPSHOT_INTERVAL_MS = 150;
-const initial: ReceiverSnapshot = { state: 'READY', receivedBlocks: 0, totalBlocks: 0, duplicates: 0 };
+const initial: ReceiverSnapshot = { state: 'READY', receivedBlocks: 0, totalBlocks: 0, duplicates: 0, foreignFrames: 0 };
 
 export default function App() {
   const video = useRef<HTMLVideoElement>(null);
@@ -30,6 +31,8 @@ export default function App() {
   const [message, setMessage] = useState('Ready to receive a DEQR transfer.');
   const [startRequested, setStartRequested] = useState(false);
   const [metrics, setMetrics] = useState<CameraMetrics | undefined>(undefined);
+  const [cameraError, setCameraError] = useState<string | undefined>(undefined);
+  const [hostStatus, setHostStatus] = useState<HostStatus>('CHECKING');
 
   const publishSnapshot = useCallback((next: ReceiverSnapshot, immediate = false) => {
     latestSnapshot.current = next;
@@ -124,6 +127,7 @@ export default function App() {
   const onCameraError = useCallback((error: string) => {
     cameraActive.current = false;
     if (!mounted.current) return;
+    setCameraError(error);
     setCameraState('ERROR');
     setMessage(error.replaceAll('_', ' '));
   }, []);
@@ -140,6 +144,7 @@ export default function App() {
     setMetrics(undefined);
     const request = ++cameraRequest.current;
     pendingCameraRequest.current = request;
+    setCameraError(undefined);
     setCameraState('PREPARING');
     setStartRequested(true);
     setMessage('Preparing camera access...');
@@ -209,6 +214,26 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [invalidateVerification, publishSnapshot, stopCamera]);
 
+  // Host reachability is independent of the camera and of this app running at
+  // all: an installed receiver opens offline by design. Polling stops while the
+  // page is hidden and re-probes immediately on return, so a desktop Start
+  // pressed in the meantime is noticed without a background timer.
+  useEffect(() => {
+    const monitor = new HostMonitor({
+      fetch: (...args) => fetch(...args),
+      onChange: (next) => { if (mounted.current) setHostStatus(next); },
+      setTimeout: (handler, ms) => window.setTimeout(handler, ms),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+    const onVisibility = () => { if (!document.hidden) monitor.refresh(); };
+    monitor.start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      monitor.stop();
+    };
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -221,14 +246,21 @@ export default function App() {
   }, [invalidateVerification, stopCamera]);
 
   const percent = snapshot.totalBlocks ? Math.round(snapshot.receivedBlocks / snapshot.totalBlocks * 100) : 0;
-  const cameraStatus = cameraState === 'ACTIVE' ? 'Camera active' : cameraState === 'PREPARING' ? 'Preparing camera' : cameraState === 'ERROR' ? 'Camera unavailable' : 'Camera inactive';
-  const receiveHeading = snapshot.state === 'COMPLETE' ? 'File verified' : snapshot.state === 'FAILED' ? 'Transfer not verified' : snapshot.state === 'CANCELLED' ? 'Reception cancelled' : snapshot.state === 'VERIFYING' ? 'Verifying file integrity' : cameraState === 'ERROR' ? 'Camera unavailable' : cameraState === 'PREPARING' ? 'Allow camera access' : cameraState === 'IDLE' ? 'Camera paused' : 'Receiving transfer';
+  // A failed scanner is not a failed camera. Reporting it as one sent people to
+  // the iPhone permission screen to fix something that was never wrong there.
+  const scannerFailed = cameraError === 'QR_SCANNER_UNAVAILABLE';
+  const errorHeading = scannerFailed ? 'Scanner unavailable' : 'Camera unavailable';
+  const cameraStatus = cameraState === 'ACTIVE' ? 'Camera active' : cameraState === 'PREPARING' ? 'Preparing camera' : cameraState === 'ERROR' ? errorHeading : 'Camera inactive';
+  const receiveHeading = snapshot.state === 'COMPLETE' ? 'File verified' : snapshot.state === 'FAILED' ? 'Transfer not verified' : snapshot.state === 'CANCELLED' ? 'Reception cancelled' : snapshot.state === 'VERIFYING' ? 'Verifying file integrity' : cameraState === 'ERROR' ? errorHeading : cameraState === 'PREPARING' ? 'Allow camera access' : cameraState === 'IDLE' ? 'Camera paused' : 'Receiving transfer';
   const canRetryCamera = cameraState === 'IDLE' || cameraState === 'ERROR';
   const scanTiming = metrics ? metrics.capturedFrames + ' scans, ' + metrics.cameraAverageMs.toFixed(1) + ' ms capture, ' + metrics.decodeAverageMs.toFixed(1) + ' ms decode' : undefined;
+  const host = hostStatusCopy(hostStatus);
   const statusMessage = snapshot.state === 'FAILED'
     ? 'This transfer could not be verified. No file was saved.'
     : cameraState === 'ERROR'
-      ? 'Camera access did not start. Check the iPhone permission, then try again.'
+      ? scannerFailed
+        ? 'The QR scanner could not start on this device. Reload the app, then try again.'
+        : 'Camera access did not start. Check the iPhone permission, then try again.'
       : message;
   const focusState = screen === 'HOME'
     ? 'HOME'
@@ -248,7 +280,7 @@ export default function App() {
           : snapshot.state === 'CANCELLED'
             ? 'Reception cancelled and temporary transfer data cleared.'
             : cameraState === 'ERROR'
-              ? 'Camera unavailable. Check permission and try again.'
+              ? scannerFailed ? 'Scanner unavailable. Reload the app and try again.' : 'Camera unavailable. Check permission and try again.'
               : cameraState === 'PREPARING'
                 ? 'Preparing camera access.'
                 : snapshot.state === 'RECEIVING'
@@ -269,8 +301,25 @@ export default function App() {
         <img className="brand-mark" src="./icons/deqr.svg" alt="" />
         <div><strong>DEQR</strong><small>Optical Transfer</small></div>
       </div>
-      <span className="version" aria-label={'DEQR receiver ' + VERSION}>Receiver</span>
+      {/* Replaces a static "Receiver" chip that only ever restated the app's
+          own name. Its own polite region, changing text only on a real
+          transition, so a poll that confirms the current state says nothing. */}
+      <span
+        className={'host-chip host-' + hostStatus.toLowerCase()}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        title={'DEQR receiver ' + VERSION}
+      >
+        <span className="host-dot" aria-hidden="true" />
+        {host.label}
+        <span className="visually-hidden">. {host.detail}</span>
+      </span>
     </header>
+
+    {/* Already announced above; shown for the eye, and only when it is
+        actionable, so the normal case costs no vertical space. */}
+    {hostStatus !== 'ONLINE' && <p className="host-detail" aria-hidden="true">{host.detail}</p>}
 
     {screen === 'HOME' && <section className="home-screen" aria-labelledby="home-title">
       <div className="home-mark card" aria-hidden="true"><img src="./icons/deqr.svg" alt="" /></div>
@@ -315,9 +364,14 @@ export default function App() {
 
         <details className="scan-details">
           <summary>Scanning details</summary>
+          {/* Counts only. These separate "the camera never resolved a code"
+              from "codes decode but belong to another transfer" from "blocks
+              are arriving"; no payload byte is ever surfaced here. */}
           <dl>
             <div><dt>Unique blocks</dt><dd>{snapshot.receivedBlocks} / {snapshot.totalBlocks || '—'}</dd></div>
+            <div><dt>QR codes read</dt><dd>{metrics?.decodedFrames ?? 0}</dd></div>
             <div><dt>Duplicates ignored</dt><dd>{snapshot.duplicates}</dd></div>
+            <div><dt>Other transfer</dt><dd>{snapshot.foreignFrames}</dd></div>
             {scanTiming && <div className="wide"><dt>Local scanner timing</dt><dd>{scanTiming}</dd></div>}
           </dl>
         </details>
