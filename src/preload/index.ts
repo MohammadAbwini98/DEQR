@@ -30,7 +30,6 @@ const api: DeqrAPI = {
   loopback: {
     start: (sessionId: number, options: LoopbackOptions): Promise<void> => ipcRenderer.invoke('loopback:start', sessionId, options),
     cancel: (sessionId: number): Promise<void> => ipcRenderer.invoke('loopback:cancel', sessionId),
-    saveVerifiedResult: (sessionId: number): Promise<void> => ipcRenderer.invoke('loopback:saveVerifiedResult', sessionId),
     subscribe: (sessionId: number, listener: (stats: LoopbackStats) => void) => {
       const channel = `loopback:stats:${sessionId}`;
       const handler = (_event: IpcRendererEvent, stats: LoopbackStats) => {

@@ -98,10 +98,16 @@ export interface DeqrAPI {
     cancel: (sessionId: number) => Promise<void>;
     subscribe: (sessionId: number, listener: (framePayload: Uint8Array, stats: TransferStats) => void) => () => void;
   };
+  /**
+   * Loopback is a self-test: it re-decodes a file the user already selected
+   * from local disk, to prove the optical container round-trips. It therefore
+   * has no save operation — the source file is already on this filesystem, and
+   * `loopbackFrame` releases the session the moment decoding completes. Bytes
+   * that genuinely arrived from outside are persisted by `receive` instead.
+   */
   loopback: {
     start: (sessionId: number, options: LoopbackOptions) => Promise<void>;
     cancel: (sessionId: number) => Promise<void>;
-    saveVerifiedResult: (sessionId: number) => Promise<void>;
     subscribe: (sessionId: number, listener: (stats: LoopbackStats) => void) => () => void;
   };
   receive: {
