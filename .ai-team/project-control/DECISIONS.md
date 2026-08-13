@@ -95,3 +95,40 @@
 - **Context**: Electron showed a white renderer area while `run-local.cmd -Https` started both applications. Investigation reproduced a shared Vite optimizer cache collision: the PWA optimization replaced the desktop metadata, leaving the desktop renderer's browser `buffer` import at an obsolete `504 Outdated Optimize Dep` URL before React executed.
 - **Decision**: Electron development remains `http://localhost:5173/` with a parsed exact-loopback development exception. The PWA remains a distinct LAN-bound server on `5174`, using trusted HTTPS only for physical iPhone work. The two Vite configurations use separate optimizer cache directories. The launcher must verify expected HTML/module/dependency responses before Electron starts and await a concise dashboard-plus-preload readiness marker. HTTPS certificate SAN checking is local-only and must never use a global TLS bypass.
 - **Consequences**: The desktop and PWA do not need to share an origin or certificate. Local HTTP/HTTPS startup has automated evidence, but certificate trust, firewall reachability, PWA installation/offline behavior, camera, export, optical transfer, package integrity, and release promotion remain separate gates.
+
+---
+
+## ADR-010 / DEQR-ADR-IPC-001: Privileged IPC Is a Capability Boundary and Authenticates Its Caller
+
+- **Date**: 2026-08-14
+- **Status**: APPROVED
+- **Task**: DESKTOP-SEC-008
+
+### Threat being addressed
+
+The preload bridge is a capability surface, not a private channel. `contextIsolation` prevents the page from tampering with the bridge's internals, but it does not authenticate the caller: any script running in the renderer's JavaScript context can reach `window.deqr`. Before this decision, that reached a native file-open dialog, a file write, the transfer and loopback engines, the window controls, and `pwaHost:start`, which generates a 2048-bit private key and binds a listener on every interface.
+
+Realistic paths to foreign code in that context are a dependency compromise inside the renderer bundle, a future injection through renderer-rendered values such as filenames, or an unexpected subframe. Existing controls make this hard rather than impossible: navigation is denied outright by `will-navigate`, popups are denied, the packaged CSP is `default-src 'none'` with `connect-src 'none'` and `frame-src 'none'`, requests are fail-closed, and the renderer runs sandboxed with no Node integration.
+
+This is therefore **defence in depth, not remediation of a known exploit**. It is adopted because a privileged main-process operation should not treat "you are running in our window" as authorization, and because the cost is close to zero.
+
+### Decision
+
+Authenticate the sender of every renderer-to-main `invoke`. `src/main/ipc-sender-policy.ts` provides `isTrustedIpcSenderUrl` and `isTrustedIpcSender`, and `registerIpcHandlers` registers exclusively through a `handleTrusted` wrapper.
+
+- **Trusted origins**: the packaged renderer document (a `file:` URL with no host) in every build, plus the exact desktop development origin when, and only when, the build is not packaged.
+- **Development behaviour**: `http://localhost:5173` (also `127.0.0.1` and `[::1]`) is trusted, with no credentials and no other port, reusing `isDesktopDevelopmentOrigin` from ADR-009.
+- **Packaged behaviour**: the development origin is **not** trusted. `isTrustedRendererOrigin` was deliberately **not** reused for IPC: it takes no `isPackaged` argument, so reusing it would have made a development server a trusted caller inside a shipped application.
+- **Opaque and tooling origins**: `data:` and `devtools:` are rejected. They remain loadable as resources under `isAllowedRendererRequest`; a `data:` document is an opaque origin and must never hold the bridge. This is why IPC consumes the narrower `isLocalRendererFileUrl` rather than `isAllowedLocalRendererResource`.
+- **Subframe policy**: only the top-level frame may call. `parent` must be exactly `null`; a frame that does not report its parent is rejected rather than assumed top-level, so an Electron change would break loudly in development instead of quietly admitting subframes.
+- **Fail-closed behaviour**: a destroyed, absent, or unreadable `senderFrame` is rejected, as is any untrusted URL. Rejection throws `IPC_SENDER_REJECTED` with the fixed message `IPC request rejected.`; the privileged body never runs. The internal log records only the channel name, which is static application structure — the frame URL is not logged because it can contain a local filesystem path.
+- **Coverage**: all 15 channels, with no exempt tier. An exemption for window controls was considered and rejected: a frame that may not open a LAN listener should not be able to close the window mid-transfer, and an exemption requires a reason rather than an absence of harm.
+- **The PWA is not an Electron renderer.** The receiver served on 5174 is a separate trust domain and is never a trusted IPC caller; `http://localhost:5174` is covered by an explicit rejection test.
+
+### One authoritative implementation
+
+`ipc-sender-policy.ts` imports the origin predicates rather than restating them, so "the development server" and "the packaged renderer document" each have exactly one definition. Tests import those same production predicates and drive the real `registerIpcHandlers`. This is a direct response to `DESKTOP-SEC-050`, where a hand-copied policy inside a test diverged from the shipped handlers and hid a real defect.
+
+### Consequences
+
+An unguarded handler is now hard to add by accident, because registration itself carries the guard, and `tests/main/ipc-sender-policy.test.ts` enumerates whatever `registerIpcHandlers` registered and requires every channel to reject an untrusted sender. That enumeration was verified by temporarily registering a raw `ipcMain.handle`, which failed the suite by name. Test mocks of `electron` must now supply `app.isPackaged` and a `senderFrame`, which is intended: a mock that cannot represent the trust boundary cannot honestly exercise the handlers.

@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron';
+﻿import { app, ipcMain, BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import crypto from 'crypto';
 import { performance } from 'node:perf_hooks';
@@ -18,6 +18,7 @@ import { computeSha256 } from '../core/hash';
 import { isBlockedExtension } from '../core/filename-sanitizer';
 import { getPwaHostStatus, subscribePwaHostStatus } from './pwa-host';
 import { pwaHostLifecycle } from './pwa-host-lifecycle';
+import { isTrustedIpcSender } from './ipc-sender-policy';
 
 // The browser receiver serially samples full camera frames at roughly 11 Hz
 // before decode cost. Keep the sender below that ceiling until physical-device
@@ -25,29 +26,55 @@ import { pwaHostLifecycle } from './pwa-host-lifecycle';
 const DEFAULT_OPTICAL_TRANSFER_FPS = 10;
 const OPTICAL_TRANSFER_INTERVAL_MS = 1_000 / DEFAULT_OPTICAL_TRANSFER_FPS;
 
+/**
+ * Registers a handler that runs only for a trusted top-level renderer frame.
+ *
+ * Every renderer-to-main channel goes through here. There is no exempt tier:
+ * window controls were considered for one and rejected, because a frame that
+ * should not be starting a LAN listener should not be closing the window
+ * mid-transfer either, and an exemption needs a reason rather than an absence
+ * of harm. Wrapping registration rather than each body is what makes an
+ * unguarded handler hard to add by accident; `ipc-sender-policy.test.ts`
+ * enumerates whatever this registers and proves each channel rejects.
+ */
+function handleTrusted(
+  channel: string,
+  handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown,
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedIpcSender(event, app.isPackaged)) {
+      // The channel name is static application structure. The frame URL is not
+      // logged: it can carry a local filesystem path.
+      console.warn(`DEQR_IPC_REJECTED channel=${channel}`);
+      throw new DeqrError(ErrorCode.IPC_SENDER_REJECTED, 'IPC request rejected.');
+    }
+    return handler(event, ...args);
+  });
+}
+
 export function registerIpcHandlers() {
-  ipcMain.handle('windowControls:minimize', (event) => {
+  handleTrusted('windowControls:minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
-  ipcMain.handle('windowControls:maximizeOrRestore', (event) => {
+  handleTrusted('windowControls:maximizeOrRestore', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
       win.isMaximized() ? win.restore() : win.maximize();
     }
   });
-  ipcMain.handle('windowControls:close', (event) => {
+  handleTrusted('windowControls:close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
   // Read-only view of the LAN receiver publication. It carries no key material
   // and no filesystem paths, so the renderer can display it directly.
-  ipcMain.handle('pwaHost:getStatus', () => getPwaHostStatus());
+  handleTrusted('pwaHost:getStatus', () => getPwaHostStatus());
 
   // Returns the acknowledgement (normally `starting`), not the outcome. The
   // outcome arrives on `pwaHost:status`, which matters because the card can
   // unmount while the host is still starting.
-  ipcMain.handle('pwaHost:start', () => pwaHostLifecycle.start());
-  ipcMain.handle('pwaHost:stop', () => pwaHostLifecycle.stop());
+  handleTrusted('pwaHost:start', () => pwaHostLifecycle.start());
+  handleTrusted('pwaHost:stop', () => pwaHostLifecycle.stop());
 
   // The first app-scoped push channel here; the others are per-session
   // (`transfer:frame:${id}`, `loopback:stats:${id}`). Registration happens once
@@ -60,7 +87,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('files:selectForTransfer', async (event) => {
+  handleTrusted('files:selectForTransfer', async (event) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
       if (!window) return null;
@@ -70,11 +97,11 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('files:discardSelection', async (event, sessionId: number) => {
+  handleTrusted('files:discardSelection', async (event, sessionId: number) => {
     globalSessionManager.removeSession(sessionId);
   });
 
-  ipcMain.handle('transfer:start', async (event, sessionId: number) => {
+  handleTrusted('transfer:start', async (event, sessionId: number) => {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer) {
@@ -98,7 +125,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('transfer:pause', async (event, sessionId: number) => {
+  handleTrusted('transfer:pause', async (event, sessionId: number) => {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer) {
@@ -115,7 +142,7 @@ export function registerIpcHandlers() {
     } catch (e) {}
   });
 
-  ipcMain.handle('transfer:resume', async (event, sessionId: number) => {
+  handleTrusted('transfer:resume', async (event, sessionId: number) => {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer && !session.activeTransfer.intervalId) {
@@ -128,12 +155,12 @@ export function registerIpcHandlers() {
     } catch (e) {}
   });
 
-  ipcMain.handle('transfer:cancel', async (event, sessionId: number) => {
+  handleTrusted('transfer:cancel', async (event, sessionId: number) => {
     globalSessionManager.removeSession(sessionId);
   });
 
   // Loopback handlers
-  ipcMain.handle('loopback:start', async (event, sessionId: number, options: any) => {
+  handleTrusted('loopback:start', async (event, sessionId: number, options: any) => {
     try {
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeLoopback) {
@@ -150,7 +177,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('loopback:cancel', async (event, sessionId: number) => {
+  handleTrusted('loopback:cancel', async (event, sessionId: number) => {
     // A renderer can emit cancel after a completed transfer removed its session.
     // Cancellation is intentionally idempotent, so this is not an IPC error.
     const session = globalSessionManager.findSession(sessionId);
@@ -161,7 +188,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('receive:saveReceivedFile', async (event, containerData: unknown, defaultName: string) => {
+  handleTrusted('receive:saveReceivedFile', async (event, containerData: unknown, defaultName: string) => {
     let containerBuffer: Buffer | undefined;
     let containerPayload: Buffer | undefined;
     let expectedHash: Buffer | undefined;

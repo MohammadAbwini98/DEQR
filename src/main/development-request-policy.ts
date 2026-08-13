@@ -45,18 +45,40 @@ export function isAllowedDesktopDevelopmentRequest(value: string): boolean {
 }
 
 /**
+ * The packaged renderer document itself: a local file URL with no host.
+ *
+ * Split out from `isAllowedLocalRendererResource` because the two answer
+ * different questions. Loading a `data:` or `devtools:` URL is harmless, but
+ * neither may ever be trusted as the *caller* of a privileged operation, so
+ * IPC sender trust consumes this narrower predicate instead. Keeping one
+ * definition of "packaged renderer file URL" is what stops the two from
+ * drifting apart.
+ */
+export function isLocalRendererFileUrl(value: string): boolean {
+  const url = parseUrl(value);
+  return Boolean(
+    url && hasNoCredentials(url) && url.protocol === 'file:' && url.hostname.length === 0,
+  );
+}
+
+/**
  * Packaged renderer resources are local file/data URLs. DevTools is local to
  * Electron and retained for development troubleshooting; none of these URLs
  * can name a remote network origin.
  */
 export function isAllowedLocalRendererResource(value: string): boolean {
+  if (isLocalRendererFileUrl(value)) {
+    return true;
+  }
+
   const url = parseUrl(value);
   if (!url || !hasNoCredentials(url)) {
     return false;
   }
-
   if (url.protocol === 'file:') {
-    return url.hostname.length === 0;
+    // A file URL that named a host was rejected above; do not fall through to
+    // the permissive protocol check below and accept it here.
+    return false;
   }
 
   return url.protocol === 'data:' || url.protocol === 'devtools:';

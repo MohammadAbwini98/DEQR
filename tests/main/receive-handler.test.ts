@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+  // Handlers now run behind the trusted-sender guard, so these tests exercise
+  // the packaged trust rules exactly as production applies them.
+  app: { isPackaged: true },
   ipcMain: {
     handle: vi.fn((channel: string, handler: IpcHandler) => {
       mocks.handlers.set(channel, handler);
@@ -43,7 +46,12 @@ vi.mock('fs', () => ({
 
 import { registerIpcHandlers } from '../../src/main/ipc-handlers';
 
-const event = { sender: {} };
+// A trusted packaged renderer: top-level frame (`parent === null`) at a local
+// file URL. Rejection of anything else is covered by ipc-sender-policy.test.ts.
+const event = {
+  sender: {},
+  senderFrame: { url: 'file:///C:/deqr/dist/renderer/index.html', parent: null },
+};
 const windowStub = { id: 1 };
 const destination = 'C:\\received\\payload.bin';
 
