@@ -31,6 +31,7 @@
 - [x] M2 Stage IOS-1 / TSK-061: `DEQR.Core` C# engine targets `net10.0`; Stage IOS-1 Core Gate passed vector regeneration/reproducibility, .NET 10 restore/build, byte-parity tests, and AI doctor.
 - [x] M2 Stage IOS-1 merged via PR #2 (`3aaf0bc0b3ced96863dcbdd7a4fbb42ea8b11b65`).
 - [x] TSK-028 Desktop renderer accessibility remediation (`407a4b3`), plus the follow-up action-card contrast fix (`bcc0527`), fast-forwarded from `codex/desktop-accessibility-remediation` into `main` (`5bc1586..bcc0527`) on 2026-08-12. **MERGED AND PUSHED** — `main` was fast-forwarded to `origin/main` at `adb3491` on 2026-08-12; no history was rewritten and `main` now tracks `origin/main`. **Its renderer changes were then superseded on 2026-08-12 by the `codex/ios2-shell` merge; see Defensible Status.**
+- [x] WEB-IOS-PWA-011: remediated the reported iPhone receiver failure. The receive path itself was cleared by evidence, not assumption; the defect that can strand a phone was the service worker, which pinned an installed receiver to the build it first cached. Added a desktop `GET /health` and a PWA host-availability indicator, made a failing scanner report itself, and aligned the secondary action in the dock. Physical iPhone re-scan remains open.
 - [x] DESKTOP-PWA-HOST-006: the iPhone receiver is now user-controlled and off at launch (`831ddb8`, pushed to `origin/main` on 2026-08-13). Certificate generation, interface enumeration, and the socket bind all moved behind an explicit Start. A new `src/main/pwa-host-lifecycle.ts` owns the server handle and serializes start/stop; `pwaHost:start`, `pwaHost:stop`, and the app-scoped `pwaHost:status` broadcast join `pwaHost:getStatus`.
 
 ## Defensible Status
@@ -38,6 +39,12 @@
 - Stage 4 Phase 2.3 software implementation: PASS
 - Desktop trailing-byte/container canonicality boundary: PASS
 - Desktop permission-policy automated matrix: PASS
+- Desktop automated test suite after WEB-IOS-PWA-011 (2026-08-13): **260 PASS / 23 files**
+- PWA automated suite after WEB-IOS-PWA-011 (2026-08-13): **47 PASS / 10 files**
+- Desktop-sender-to-PWA compositional receive path: **PASS** — real container, fountain frames, painted byte-mode QR at the sender's own 400px/margin-4/EC-L settings, jsQR, `ReceiverSession`, exact size and SHA-256. Covers multi-frame reconstruction, repair-only recovery after missed systematic frames, duplicate oversampling, and a foreign session. This is a software-contract pass and is **not** a substitute for the optical gate.
+- Shipped PWA decoder worker: **PASS in a live browser** — the built chunk returned a real 532-byte desktop frame byte-exact. `worker.format` is now `es`, matching its `{ type: 'module' }` constructor; it was previously emitted as an IIFE.
+- Installed-shell update path: **PASS (source + executed worker)** — see BUG-005. A phone still holding the pre-fix `deqr-mobile-shell-v1` must be confirmed on device.
+- Desktop `GET /health` and PWA host indicator: **PASS (local runtime)** — verified over the real HTTPS listener on 5174 across Start/Stop/restart, and in a browser where stopping the host flipped the indicator while the page stayed rendered. Not yet seen on a physical iPhone or under VoiceOver.
 - Desktop automated test suite on `main` at `831ddb8` (2026-08-13): **252 PASS / 23 files** (earlier checkpoints were 220 PASS / 21 files immediately post-merge, 131 PASS on `main` at `bcc0527`, 131 PASS in the 2026-08-09 remediation verification, and 126 PASS at the earlier accepted Stage 4 checkpoint)
 - PWA automated suite post-merge: **25 PASS / 7 files**
 - Desktop and PWA typecheck post-merge: **PASS**
@@ -73,7 +80,8 @@
 ## Web/PWA Status
 - TSK-062 / IOS-2 MAUI: **SUPERSEDED — PRESERVED, NO FURTHER DEVELOPMENT AUTHORIZED**
 - WEB-IOS-1 Architecture + PWA shell: **AUTOMATED PASS**
-- WEB-IOS-2 Offline/installability: **IMPLEMENTED; BROWSER/iPHONE OFFLINE RUNTIME NOT EXECUTED**
+- WEB-IOS-2 Offline/installability: **IMPLEMENTED; BROWSER/iPHONE OFFLINE RUNTIME NOT EXECUTED.** The offline shell is retained deliberately — an installed receiver is meant to open with no host at all — but it is no longer allowed to pin the build. See BUG-005 and WEB-IOS-PWA-011.
+- WEB-IOS-PWA-011 receiver remediation: **AUTOMATED + COMPOSITIONAL + LOCAL-RUNTIME PASS; PHYSICAL iPHONE RE-SCAN NOT EXECUTED**
 - WEB-IOS-3 Camera subsystem: **PHYSICAL iPHONE CAMERA + RAW QR ACQUISITION OBSERVED; STANDALONE/OFFLINE NOT EXECUTED**
 - WEB-IOS-4 Raw QR byte fidelity: **AUTOMATED PASS**
 - WEB-IOS-5 Protocol integration: **AUTOMATED PASS**
@@ -136,7 +144,8 @@
 
 **A physical iPhone is the only blocker for both open release gates. The 2026-08-12 merge adds one desktop item that is not device-dependent: item 6.**
 
-1. Perform trusted physical Safari/installed-PWA acceptance: CA/firewall reachability, camera permission/denial/recovery, standalone launch, offline shell, export/Files, VoiceOver and the appearance/accessibility matrix, and corrected desktop-to-iPhone byte/hash reconstruction. Fixtures with recorded SHA-256 digests are staged at `.local-run/acceptance-fixtures/`.
+0. **Do this before anything else on the phone.** Confirm the iPhone actually picks up the rebuilt shell (BUG-005). Start the desktop receiver, open the installed PWA, and check that the topbar reads **Receiver online** and that scan details list "QR codes read" and "Other transfer" — those exist only in the new build. If the old shell persists, clear the site data or reinstall the PWA, then repeat. Every result below is meaningless until this passes, because a stale shell silently reproduces the original report.
+1. Perform trusted physical Safari/installed-PWA acceptance: CA/firewall reachability, camera permission/denial/recovery, standalone launch, offline shell, export/Files, VoiceOver and the appearance/accessibility matrix, and corrected desktop-to-iPhone byte/hash reconstruction. Fixtures with recorded SHA-256 digests are staged at `.local-run/acceptance-fixtures/`. During the scan, read "QR codes read" in scan details: if it stays at 0 while scans climb, the failure is optical or scanner-side, not protocol — the protocol path is now covered by a compositional test.
 2. Run the 6/8/10/12/15 FPS sweep on the device and set the sender rate from measured useful unique payload throughput. The current 10 FPS default remains an unvalidated hypothesis and was deliberately left unchanged.
 3. Repeat the 5 KiB / 100 KiB / 1 MiB subset using the packaged portable artifact (`release/deqr 0.1.0.exe`, SHA-256 `80D42022…B66A`) to close the last `DESKTOP-SEC-050` criterion.
 4. Before any real PWA deployment, resolve `WEB-IOS-SEC-003`'s response-header boundary — `frame-ancestors` is ignored when CSP is delivered via `<meta>`.
