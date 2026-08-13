@@ -5,14 +5,7 @@ import {
   evaluateMediaPermission,
   isAllowedRendererRequest,
 } from './development-request-policy';
-import { collectLanAddresses } from './lan-addresses';
-import { resolvePwaCertificate } from './pwa-certificate';
-import {
-  PWA_HOST_DEFAULT_PORT,
-  RunningPwaHost,
-  setPwaHostStatus,
-  startPwaHost,
-} from './pwa-host';
+import { pwaHostLifecycle } from './pwa-host-lifecycle';
 
 const DEVELOPMENT_RENDERER_URL = 'http://localhost:5173/';
 const STARTUP_DIAGNOSTICS_ENABLED = process.env.DEQR_STARTUP_DIAGNOSTICS === '1';
@@ -210,78 +203,11 @@ function createWindow() {
   }
 }
 
-let pwaHost: RunningPwaHost | null = null;
-
-/**
- * Serves the built iPhone receiver over LAN HTTPS so the phone can install and
- * use it without any development server. Failure here must never stop the
- * desktop sender from starting: the desktop app is still fully usable with a
- * receiver that was installed earlier.
- */
-async function startPwaHosting(): Promise<void> {
-  // dist/main/index.js -> dist/pwa
-  const rootDirectory = path.join(__dirname, '..', 'pwa');
-
-  try {
-    const addresses = collectLanAddresses();
-    const certificate = resolvePwaCertificate({
-      storageDirectory: path.join(app.getPath('userData'), 'pwa-host'),
-      addresses: addresses.map((entry) => entry.address),
-    });
-
-    pwaHost = await startPwaHost({
-      rootDirectory,
-      certificate: certificate.certificate,
-      privateKey: certificate.privateKey,
-      port: PWA_HOST_DEFAULT_PORT,
-    });
-
-    const port = pwaHost.port;
-    const candidates = addresses.map((entry) => ({
-      address: entry.address,
-      interfaceName: entry.interfaceName,
-      kind: entry.kind,
-      url: `https://${entry.address}:${port}/`,
-    }));
-
-    setPwaHostStatus({
-      running: true,
-      url: candidates[0]?.url ?? `https://127.0.0.1:${port}/`,
-      addresses: candidates,
-      subjectAltNames: certificate.subjectAltNames,
-      certificateSource: certificate.source,
-      error: null,
-    });
-
-    console.log(
-      `DEQR_PWA_HOST_READY port=${port} certificate=${certificate.source} interfaces=${candidates.length} preferred=${candidates[0]?.kind ?? 'loopback'}`,
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.name : 'unknown';
-    setPwaHostStatus({
-      running: false,
-      url: null,
-      addresses: [],
-      subjectAltNames: [],
-      certificateSource: null,
-      // Surfaced in the desktop UI, so it must stay free of paths and key material.
-      error: 'The iPhone receiver could not be published on this network.',
-    });
-    console.warn(`DEQR_PWA_HOST_UNAVAILABLE reason=${reason}`);
-  }
-}
-
-async function stopPwaHosting(): Promise<void> {
-  const host = pwaHost;
-  pwaHost = null;
-  if (host) {
-    await host.close();
-  }
-}
-
+// The iPhone receiver is not published at startup. It binds every interface and
+// generates a private key on first use, so it waits for the person at the
+// keyboard to ask for it through `pwaHost:start`.
 app.whenReady().then(() => {
   registerIpcHandlers();
-  void startPwaHosting();
   createWindow();
 
   app.on('activate', function () {
@@ -290,7 +216,9 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
-  void stopPwaHosting();
+  // A no-op when the host was never started, and it chains behind an in-flight
+  // start so a half-open server cannot outlive the app.
+  void pwaHostLifecycle.stop();
 });
 
 app.on('window-all-closed', () => {

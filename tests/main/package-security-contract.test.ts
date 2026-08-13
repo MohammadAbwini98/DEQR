@@ -77,4 +77,19 @@ describe('packaged Electron security contract', () => {
     expect(readinessRegistration).toBeGreaterThan(-1);
     expect(readinessRegistration).toBeLessThan(developmentOnlyRegistration);
   });
+
+  it('never publishes the iPhone receiver until someone asks for it', async () => {
+    const source = await readMainSource();
+
+    // The receiver binds every interface and writes a private key on first use.
+    // Off by default is enforced here as the absence of any startup call.
+    expect(source).not.toMatch(/startPwaHosting/);
+    expect(source).not.toMatch(/startPwaHost\(/);
+    expect(source).toMatch(
+      /whenReady\(\)\.then\(\(\) => \{\s*registerIpcHandlers\(\);\s*createWindow\(\);/,
+    );
+    // A running host must still be closed on the way out.
+    expect(source).toContain("app.on('before-quit'");
+    expect(source).toContain('pwaHostLifecycle.stop()');
+  });
 });

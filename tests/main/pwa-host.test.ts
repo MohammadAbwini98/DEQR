@@ -1,13 +1,23 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   PWA_CONTENT_SECURITY_POLICY,
   contentTypeFor,
+  failedPwaHostStatus,
+  getPwaHostStatus,
+  resetPwaHostStatus,
   resolveRequestedFile,
+  runningPwaHostStatus,
+  setPwaHostStatus,
+  startingPwaHostStatus,
+  stoppedPwaHostStatus,
+  stoppingPwaHostStatus,
+  subscribePwaHostStatus,
 } from '../../src/main/pwa-host';
 import { classifyAddress, collectLanAddresses } from '../../src/main/lan-addresses';
 import { evaluateStoredCertificate, parseSubjectAltNames } from '../../src/main/pwa-certificate';
+import type { PwaHostStatusView } from '../../src/shared/types';
 
 const ROOT = path.resolve('C:\\deqr\\dist\\pwa');
 
@@ -169,5 +179,84 @@ describe('stored certificate reuse', () => {
     const result = evaluateStoredCertificate('not a certificate', ['192.168.1.42']);
     expect(result.usable).toBe(false);
     expect(result.reason).toBe('unreadable');
+  });
+});
+
+describe('PWA host status store', () => {
+  beforeEach(() => {
+    resetPwaHostStatus();
+  });
+
+  it('starts stopped, which is the launch default rather than a failure', () => {
+    const status = getPwaHostStatus();
+
+    expect(status.state).toBe('stopped');
+    expect(status.running).toBe(false);
+    expect(status.error).toBeNull();
+    expect(status.url).toBeNull();
+  });
+
+  it('keeps running equal to the running state in every factory', () => {
+    const running = runningPwaHostStatus({
+      url: 'https://192.168.1.20:5174/',
+      addresses: [],
+      subjectAltNames: [],
+      certificateSource: 'stored',
+    });
+
+    for (const status of [
+      stoppedPwaHostStatus(),
+      startingPwaHostStatus(),
+      stoppingPwaHostStatus(running),
+      running,
+      failedPwaHostStatus('nope'),
+    ]) {
+      expect(status.running).toBe(status.state === 'running');
+    }
+  });
+
+  it('clears the published details when it goes back to stopped', () => {
+    setPwaHostStatus(
+      runningPwaHostStatus({
+        url: 'https://192.168.1.20:5174/',
+        addresses: [
+          { address: '192.168.1.20', interfaceName: 'Wi-Fi', kind: 'private', url: 'https://192.168.1.20:5174/' },
+        ],
+        subjectAltNames: ['192.168.1.20'],
+        certificateSource: 'stored',
+      }),
+    );
+    setPwaHostStatus(stoppedPwaHostStatus());
+
+    expect(getPwaHostStatus().url).toBeNull();
+    expect(getPwaHostStatus().addresses).toEqual([]);
+  });
+
+  it('delivers transitions to subscribers until they unsubscribe', () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribePwaHostStatus((status) => seen.push(status.state));
+
+    setPwaHostStatus(startingPwaHostStatus());
+    unsubscribe();
+    setPwaHostStatus(stoppedPwaHostStatus());
+
+    expect(seen).toEqual(['starting']);
+  });
+
+  it('stores the status even when a subscriber throws', () => {
+    const unsubscribe = subscribePwaHostStatus(() => {
+      throw new Error('a display concern');
+    });
+
+    expect(() => setPwaHostStatus(startingPwaHostStatus())).not.toThrow();
+    expect(getPwaHostStatus().state).toBe('starting');
+    unsubscribe();
+  });
+
+  it('stays assignable to the renderer view type', () => {
+    // Compile-time guard: the main and renderer shapes are deliberate
+    // duplicates, so drift between them must fail the typecheck.
+    const view: PwaHostStatusView = getPwaHostStatus();
+    expect(view.state).toBe('stopped');
   });
 });

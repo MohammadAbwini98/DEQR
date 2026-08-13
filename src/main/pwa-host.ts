@@ -160,6 +160,13 @@ export function startPwaHost(options: StartPwaHostOptions): Promise<RunningPwaHo
 
     server.listen(port, bindAddress, () => {
       server.removeListener('error', onListenError);
+      // An 'error' event with no listener is thrown, which would take down the
+      // main process. The listen-time handler above is gone by now, and the
+      // server can be started and stopped repeatedly, so it needs a durable
+      // replacement rather than none.
+      server.on('error', () => {
+        setPwaHostStatus(failedPwaHostStatus(PWA_HOST_FAILURE_MESSAGE));
+      });
       // Keeping the process alive is the window's job, not the server's.
       server.unref();
       resolve({
@@ -182,7 +189,17 @@ export interface PwaHostAddress {
   url: string;
 }
 
+/**
+ * `stopped` is the launch default and is not a failure. Keeping the two
+ * in-progress states here rather than in the renderer is deliberate: the card
+ * unmounts whenever the user leaves the dashboard, so anything it must still
+ * know after remounting has to live in this process.
+ */
+export type PwaHostState = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+
 export interface PwaHostStatus {
+  state: PwaHostState;
+  /** Invariant: always equal to `state === 'running'`. */
   running: boolean;
   /** The preferred URL. Every candidate is listed in `addresses`. */
   url: string | null;
@@ -192,19 +209,78 @@ export interface PwaHostStatus {
   error: string | null;
 }
 
-const IDLE_STATUS: PwaHostStatus = {
-  running: false,
-  url: null,
-  addresses: [],
-  subjectAltNames: [],
-  certificateSource: null,
-  error: null,
-};
+/** Surfaced in the desktop UI, so it must stay free of paths and key material. */
+export const PWA_HOST_FAILURE_MESSAGE =
+  'The iPhone receiver could not be published on this network.';
 
-let currentStatus: PwaHostStatus = IDLE_STATUS;
+// Every status is built by one of these five factories. That is what keeps the
+// `running`/`state` invariant true in one place instead of at each call site.
+
+export function stoppedPwaHostStatus(): PwaHostStatus {
+  return {
+    state: 'stopped',
+    running: false,
+    url: null,
+    addresses: [],
+    subjectAltNames: [],
+    certificateSource: null,
+    error: null,
+  };
+}
+
+export function startingPwaHostStatus(): PwaHostStatus {
+  return { ...stoppedPwaHostStatus(), state: 'starting' };
+}
+
+export function stoppingPwaHostStatus(previous: PwaHostStatus): PwaHostStatus {
+  return { ...previous, state: 'stopping', running: false };
+}
+
+export function runningPwaHostStatus(details: {
+  url: string;
+  addresses: PwaHostAddress[];
+  subjectAltNames: string[];
+  certificateSource: CertificateSource;
+}): PwaHostStatus {
+  return {
+    state: 'running',
+    running: true,
+    url: details.url,
+    addresses: details.addresses,
+    subjectAltNames: details.subjectAltNames,
+    certificateSource: details.certificateSource,
+    error: null,
+  };
+}
+
+export function failedPwaHostStatus(message: string): PwaHostStatus {
+  return { ...stoppedPwaHostStatus(), state: 'failed', error: message };
+}
+
+let currentStatus: PwaHostStatus = stoppedPwaHostStatus();
+
+export type PwaHostStatusListener = (status: PwaHostStatus) => void;
+
+const listeners = new Set<PwaHostStatusListener>();
+
+export function subscribePwaHostStatus(listener: PwaHostStatusListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 export function setPwaHostStatus(status: PwaHostStatus): void {
   currentStatus = status;
+  // Snapshot first: a listener may unsubscribe during delivery. One throwing
+  // subscriber must not stop the others from seeing the transition.
+  for (const listener of [...listeners]) {
+    try {
+      listener(status);
+    } catch {
+      // A display concern must never break the host lifecycle.
+    }
+  }
 }
 
 export function getPwaHostStatus(): PwaHostStatus {
@@ -212,5 +288,5 @@ export function getPwaHostStatus(): PwaHostStatus {
 }
 
 export function resetPwaHostStatus(): void {
-  currentStatus = IDLE_STATUS;
+  currentStatus = stoppedPwaHostStatus();
 }

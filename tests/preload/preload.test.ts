@@ -44,8 +44,28 @@ describe('Preload Bridge', () => {
     
     const unsubscribe = deqr.transfer.subscribe(123, listener);
     expect(mockIpcRenderer.on).toHaveBeenCalledWith('transfer:frame:123', expect.any(Function));
-    
+
     unsubscribe();
     expect(mockIpcRenderer.removeListener).toHaveBeenCalledWith('transfer:frame:123', expect.any(Function));
+  });
+
+  it('routes the PWA host controls to their channels', async () => {
+    const deqr = (global as any).deqr;
+
+    await deqr.pwaHost.start();
+    expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('pwaHost:start');
+
+    await deqr.pwaHost.stop();
+    expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('pwaHost:stop');
+  });
+
+  it('subscribes and unsubscribes from the app-scoped host status channel', async () => {
+    const deqr = (global as any).deqr;
+
+    const unsubscribe = deqr.pwaHost.subscribe(vi.fn());
+    expect(mockIpcRenderer.on).toHaveBeenCalledWith('pwaHost:status', expect.any(Function));
+
+    unsubscribe();
+    expect(mockIpcRenderer.removeListener).toHaveBeenCalledWith('pwaHost:status', expect.any(Function));
   });
 });

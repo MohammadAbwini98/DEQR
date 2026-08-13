@@ -64,7 +64,12 @@ export interface PwaHostAddressView {
   url: string;
 }
 
+/** Mirrors `PwaHostState` in the main process. `stopped` is not a failure. */
+export type PwaHostStateView = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+
 export interface PwaHostStatusView {
+  state: PwaHostStateView;
+  /** Always equal to `state === 'running'`. */
   running: boolean;
   /** Preferred HTTPS URL for the iPhone, or null when hosting is unavailable. */
   url: string | null;
@@ -104,6 +109,10 @@ export interface DeqrAPI {
   };
   pwaHost: {
     getStatus: () => Promise<PwaHostStatusView>;
+    /** Resolves with the acknowledgement, usually `starting`, not the outcome. */
+    start: () => Promise<PwaHostStatusView>;
+    stop: () => Promise<PwaHostStatusView>;
+    subscribe: (listener: (status: PwaHostStatusView) => void) => () => void;
   };
 }
 

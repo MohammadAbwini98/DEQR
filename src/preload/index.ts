@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { DeqrAPI, TransferStats, LoopbackStats, LoopbackOptions, FileSelectionResult } from '../shared/types';
+import { DeqrAPI, TransferStats, LoopbackStats, LoopbackOptions, FileSelectionResult, PwaHostStatusView } from '../shared/types';
 
 const api: DeqrAPI = {
   windowControls: {
@@ -47,7 +47,19 @@ const api: DeqrAPI = {
       ipcRenderer.invoke('receive:saveReceivedFile', fileData, defaultName)
   },
   pwaHost: {
-    getStatus: () => ipcRenderer.invoke('pwaHost:getStatus')
+    getStatus: () => ipcRenderer.invoke('pwaHost:getStatus'),
+    start: () => ipcRenderer.invoke('pwaHost:start'),
+    stop: () => ipcRenderer.invoke('pwaHost:stop'),
+    subscribe: (listener: (status: PwaHostStatusView) => void) => {
+      const channel = 'pwaHost:status';
+      const handler = (_event: IpcRendererEvent, status: PwaHostStatusView) => {
+        listener(status);
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
   }
 };
 

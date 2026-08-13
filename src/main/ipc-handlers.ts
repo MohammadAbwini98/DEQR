@@ -16,7 +16,8 @@ import { serializeFrame } from '../core/protocol';
 import { deserializeContainer } from '../core/container';
 import { computeSha256 } from '../core/hash';
 import { isBlockedExtension } from '../core/filename-sanitizer';
-import { getPwaHostStatus } from './pwa-host';
+import { getPwaHostStatus, subscribePwaHostStatus } from './pwa-host';
+import { pwaHostLifecycle } from './pwa-host-lifecycle';
 
 // The browser receiver serially samples full camera frames at roughly 11 Hz
 // before decode cost. Keep the sender below that ceiling until physical-device
@@ -41,6 +42,23 @@ export function registerIpcHandlers() {
   // Read-only view of the LAN receiver publication. It carries no key material
   // and no filesystem paths, so the renderer can display it directly.
   ipcMain.handle('pwaHost:getStatus', () => getPwaHostStatus());
+
+  // Returns the acknowledgement (normally `starting`), not the outcome. The
+  // outcome arrives on `pwaHost:status`, which matters because the card can
+  // unmount while the host is still starting.
+  ipcMain.handle('pwaHost:start', () => pwaHostLifecycle.start());
+  ipcMain.handle('pwaHost:stop', () => pwaHostLifecycle.stop());
+
+  // The first app-scoped push channel here; the others are per-session
+  // (`transfer:frame:${id}`, `loopback:stats:${id}`). Registration happens once
+  // because `registerIpcHandlers` is called once.
+  subscribePwaHostStatus((status) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('pwaHost:status', status);
+      }
+    }
+  });
 
   ipcMain.handle('files:selectForTransfer', async (event) => {
     try {

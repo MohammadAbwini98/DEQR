@@ -340,6 +340,20 @@ p {
   border-style: dashed;
 }
 
+.pwa-host-card .action-row {
+  margin-top: 4px;
+}
+
+/* The global disabled rule dims to `opacity: 0.58`, which fades this button's
+   text toward its own background and drops below 4.5:1. Express the pending
+   state with existing tokens instead of dimming it. */
+.pwa-host-card .action-row button:disabled {
+  opacity: 1;
+  border-color: var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+}
+
 @media (max-width: 720px) {
   .pwa-host-body {
     grid-template-columns: minmax(0, 1fr);
