@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getSaveOutcome, isActiveTransferState } from '../../src/renderer/app-model';
+import {
+  formatFileSize,
+  getIpcError,
+  getSaveOutcome,
+  isActiveTransferState,
+} from '../../src/renderer/app-model';
 
 describe('renderer app model', () => {
   it('reports a completed save only after an affirmative IPC result', () => {
@@ -23,5 +28,30 @@ describe('renderer app model', () => {
     expect(isActiveTransferState('loopback-receiving')).toBe(true);
     expect(isActiveTransferState('preparing')).toBe(false);
     expect(isActiveTransferState('completed')).toBe(false);
+  });
+
+  // Coverage moved here from the orphaned `ui-model` module, whose own version
+  // of this labelled 1024-based values KB/MB. These now sit on the module the
+  // renderer actually imports.
+  it('labels sizes with the binary units its divisor actually produces', () => {
+    expect(formatFileSize(512)).toBe('512 bytes');
+    expect(formatFileSize(1536)).toBe('1.5 KiB');
+    expect(formatFileSize(2 * 1024 * 1024)).toBe('2.00 MiB');
+    expect(formatFileSize(1023)).toBe('1023 bytes');
+    expect(formatFileSize(1024)).toBe('1.0 KiB');
+  });
+
+  it('extracts an IPC error without mistaking a successful result for one', () => {
+    expect(getIpcError({ error: { message: 'File is blocked' } })).toBe('File is blocked');
+    expect(getIpcError({ sessionId: 1 })).toBeNull();
+    expect(getIpcError(null)).toBeNull();
+    expect(getIpcError(undefined)).toBeNull();
+  });
+
+  it('still reports a failure that arrives without a message', () => {
+    // A handler can return `{ error: {} }`; silence would leave the user with a
+    // stalled screen and no explanation.
+    expect(getIpcError({ error: {} })).toBe('The requested action could not be completed.');
+    expect(getIpcError({ error: undefined })).toBe('The requested action could not be completed.');
   });
 });

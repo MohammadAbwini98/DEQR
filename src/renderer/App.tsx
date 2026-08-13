@@ -5,25 +5,7 @@ import Dashboard from './components/Dashboard';
 import QRCanvas from './components/QRCanvas';
 import LoopbackView from './components/LoopbackView';
 import CameraReceiver from './components/CameraReceiver';
-import { getSaveOutcome, isActiveTransferState } from './app-model';
-
-interface IpcErrorResult {
-  error?: { message?: string };
-}
-
-function getIpcError(value: unknown): string | null {
-  if (value && typeof value === 'object' && 'error' in value) {
-    const error = (value as IpcErrorResult).error;
-    return error?.message || 'The requested action could not be completed.';
-  }
-  return null;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
-}
+import { formatFileSize, getIpcError, getSaveOutcome, isActiveTransferState } from './app-model';
 
 export default function App() {
   const [state, setState] = useState<TransferState>('idle');
