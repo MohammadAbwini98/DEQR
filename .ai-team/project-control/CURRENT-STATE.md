@@ -1,7 +1,7 @@
 # DEQR Current Project State
 
 **Current Phase**: Phase 1 — Milestone M1 (Stage 4: Optical Integration) + Milestone M2 Mobile Receiver
-**Last Updated**: 2026-08-12
+**Last Updated**: 2026-08-13
 **Status**: IN_PROGRESS — packaged Electron gate conditionally verified with artifact evidence; physical iPhone gate fully unexecuted (no device). Release verdict remains **NOT ACCEPTED**.
 
 > **PRIMARY ACTIVE WORKSTREAM: WEB-IOS (Mobile Web/PWA Receiver)**
@@ -31,13 +31,14 @@
 - [x] M2 Stage IOS-1 / TSK-061: `DEQR.Core` C# engine targets `net10.0`; Stage IOS-1 Core Gate passed vector regeneration/reproducibility, .NET 10 restore/build, byte-parity tests, and AI doctor.
 - [x] M2 Stage IOS-1 merged via PR #2 (`3aaf0bc0b3ced96863dcbdd7a4fbb42ea8b11b65`).
 - [x] TSK-028 Desktop renderer accessibility remediation (`407a4b3`), plus the follow-up action-card contrast fix (`bcc0527`), fast-forwarded from `codex/desktop-accessibility-remediation` into `main` (`5bc1586..bcc0527`) on 2026-08-12. **MERGED AND PUSHED** — `main` was fast-forwarded to `origin/main` at `adb3491` on 2026-08-12; no history was rewritten and `main` now tracks `origin/main`. **Its renderer changes were then superseded on 2026-08-12 by the `codex/ios2-shell` merge; see Defensible Status.**
+- [x] DESKTOP-PWA-HOST-006: the iPhone receiver is now user-controlled and off at launch (`831ddb8`, pushed to `origin/main` on 2026-08-13). Certificate generation, interface enumeration, and the socket bind all moved behind an explicit Start. A new `src/main/pwa-host-lifecycle.ts` owns the server handle and serializes start/stop; `pwaHost:start`, `pwaHost:stop`, and the app-scoped `pwaHost:status` broadcast join `pwaHost:getStatus`.
 
 ## Defensible Status
 - Stage 4 Phase 1: PASS
 - Stage 4 Phase 2.3 software implementation: PASS
 - Desktop trailing-byte/container canonicality boundary: PASS
 - Desktop permission-policy automated matrix: PASS
-- Desktop automated test suite post-merge (2026-08-12): **220 PASS / 21 files** (pre-merge checkpoints were 131 PASS on `main` at `bcc0527`, 131 PASS in the 2026-08-09 remediation verification, and 126 PASS at the earlier accepted Stage 4 checkpoint)
+- Desktop automated test suite on `main` at `831ddb8` (2026-08-13): **252 PASS / 23 files** (earlier checkpoints were 220 PASS / 21 files immediately post-merge, 131 PASS on `main` at `bcc0527`, 131 PASS in the 2026-08-09 remediation verification, and 126 PASS at the earlier accepted Stage 4 checkpoint)
 - PWA automated suite post-merge: **25 PASS / 7 files**
 - Desktop and PWA typecheck post-merge: **PASS**
 - Desktop renderer build post-merge: **PASS**
@@ -50,6 +51,9 @@
 - TSK-028 surviving contributions: `frame: false` in `src/main/index.ts` (auto-merged), the `.gitignore` entries, and `src/renderer/ui-model.ts` with its test. **`ui-model.ts` is now orphaned** — no merged component imports it; only its own test references it.
 - Merged desktop renderer accessibility: **UNVERIFIED AGAINST ASSISTIVE TECHNOLOGY.** The suite still has no desktop a11y assertions, so ARIA, focus order, and screen-reader behaviour remain unexercised. The `ios2-shell` renderer has more ARIA than the superseded one by static count, which is not evidence that it works.
 - Merged window chrome: **UNVERIFIED.** `frame: false` now applies to the `ios2-shell` renderer, which has a custom title bar with drag regions but previously ran with Electron's native frame as well. Nobody has confirmed the merged combination renders exactly one header or that dragging and the window controls work.
+- iPhone receiver default posture: **OFF AT LAUNCH — VERIFIED (2026-08-13).** A launched app emitted no `DEQR_PWA_HOST_*` marker and held no listener on 5174. Enforced as the absence of a startup call rather than a flag, and held there by a source-text assertion in `tests/main/package-security-contract.test.ts`.
+- Receiver start/stop lifecycle: **PASS (2026-08-13).** 13 lifecycle tests cover the in-flight guard, including double-start coalescing, stop-during-start, and start-during-stop. The real path was additionally driven outside the tests, which all fake the listen: generated a certificate, bound 5174, closed it, and restarted onto `certificate=stored`, with socket-level checks either side of each transition.
+- Receiver control click-through and screen-reader pass: **UNVERIFIED.** Window captures were taken with `PrintWindow` against a locked session, which reads the surface without exercising input. Nobody has pressed Start in the running app, observed `starting -> running`, or confirmed that keyboard focus survives the transition.
 - Desktop physical optical-transfer acceptance: **PENDING / OPEN**
 - ADR-007 MAUI mobile architecture: **HISTORICAL / SUPERSEDED FOR ACTIVE WORK**
 - ADR-008 Safari PWA mobile architecture: **APPROVED / ACTIVE**
@@ -88,17 +92,17 @@
 - The first implementation ranked ordinary LAN addresses (192.168/10/172.16-31) above mesh-VPN addresses, which **regressed the established Tailscale workflow** the previous launcher used (`https://100.95.40.3:5174/`, SAN `100.95.40.3`).
 - Evidence that the LAN default was wrong on this host: the Ethernet adapter carrying `192.168.100.41` is on the **Public** firewall profile and **no inbound rule exists for port 5174**, so an iPhone cannot reach it; meanwhile `iphone-13-mini` is an enrolled node on the tailnet.
 - Ranking corrected: mesh-VPN addresses in `100.64.0.0/10` are now preferred, because they reach an enrolled phone from any network and do not depend on an inbound firewall rule for the physical adapter.
-- The dashboard now lists **every** reachable address with a Tailscale / Local network switch, so the choice is explicit rather than a heuristic guess. Startup logs the choice: `DEQR_PWA_HOST_READY ... preferred=overlay`.
+- The dashboard now lists **every** reachable address with a Tailscale / Local network switch, so the choice is explicit rather than a heuristic guess. The choice is logged when the receiver is started: `DEQR_PWA_HOST_READY ... preferred=overlay`. Since `831ddb8` that happens on the Start press rather than at app startup, which also means the certificate covers the network the user is actually on at that moment.
 - HTTPS was never the blocker: the certificate SAN is `DNS:localhost, IP:127.0.0.1, IP:192.168.100.41, IP:100.95.40.3`, and the receiver was verified loading over `https://100.95.40.3:5174/`.
 
 ## Packaged iPhone Receiver Hosting (2026-08-11)
 
-- The packaged desktop app now **serves the iPhone receiver itself** over LAN HTTPS on port 5174 and shows the URL on its dashboard as a scannable QR code plus text. The Vite development server is no longer required to use a phone, which removes the development-only distribution posture.
+- The packaged desktop app **can serve the iPhone receiver itself** over LAN HTTPS on port 5174 and shows the URL on its dashboard as a scannable QR code plus text. The Vite development server is no longer required to use a phone, which removes the development-only distribution posture. Since `831ddb8` this is opt-in per session: the dashboard card starts stopped and publishes nothing until Start is pressed.
 - The PWA builds to `dist/pwa` and ships inside `app.asar`; `npm run package` and `npm run dist` build it automatically.
 - TLS material resolves as env override -> stored certificate that still covers the current LAN addresses -> freshly generated, persisted under `userData`. Verified reuse: first run reported `certificate=generated`, the next reported `certificate=stored`, so the iPhone only trusts it once.
 - Server is read-only: `GET`/`HEAD` only, lexical containment inside the served directory, and rejection of percent-encoded traversal, encoded backslashes, drive-qualified paths, null bytes, and undecodable escapes.
 - **`frame-ancestors 'none'` is now genuinely enforced** because the policy is delivered as a real response header, which a `<meta>` tag cannot do. This closes the response-header half of `WEB-IOS-SEC-003` for the shipping path.
-- New residual: the packaged app accepts inbound LAN connections (static application assets only; no transferred payload passes through it) and Windows Firewall prompts on first run.
+- ~~New residual: the packaged app accepts inbound LAN connections (static application assets only; no transferred payload passes through it) and Windows Firewall prompts on first run.~~ **RETIRED 2026-08-13 by `831ddb8`.** The receiver is off at launch and binds nothing until someone presses Start, so an unattended app opens no inbound port and raises no firewall prompt. When it is running the original characterisation still holds: static assets only, no transferred payload through it.
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
@@ -138,3 +142,4 @@
 4. Before any real PWA deployment, resolve `WEB-IOS-SEC-003`'s response-header boundary — `frame-ancestors` is ignored when CSP is delivered via `<meta>`.
 5. Do not revive MAUI work.
 6. Confirm the merged desktop window chrome on an unlocked desktop. `frame: false` from `407a4b3` auto-merged onto the `ios2-shell` renderer, which previously ran with Electron's native frame on top of its own custom title bar. Verify title-bar dragging, minimize/maximize/close, and that exactly one header renders.
+7. On the same unlocked pass, exercise the receiver control from `831ddb8`: press Start and confirm the label disables immediately, that first use prompts the firewall once, that the QR and address switcher appear, that Stop releases port 5174, and that keyboard focus stays on the button across `starting -> running`. Physical-iPhone step 1 now depends on this, because the receiver no longer publishes itself.
