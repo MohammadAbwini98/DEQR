@@ -181,9 +181,14 @@ never rebuilds the portable**. Rebuilt with `npm run dist`.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `release/deqr 0.1.0.exe` (portable) | `135A15FC240B8867E63070C575DECC24C41E181BC2724B5D8D928B1A332DF1A8` |
-| `release/deqr Setup 0.1.0.exe` (NSIS) | `6F4DA9A3C1B64C8E67EFD88783EC2483691743BB41D56C939CD42396319187E8` |
-| `resources/app.asar` | `FED5A9609C2A10AE69A36C221CE622D08EDC8363AB1CB943B484466C188B6490` |
+| `release/deqr 0.1.0.exe` (portable) | `16976EE1A2042E4DB425E0776A212F69D371D41015539900B3D918EAA3DE9E9D` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | `51FB940E79B6A88EADED1AA956EF4D55C2092B1904BAB9A689B1C3C2545BADBF` |
+| `resources/app.asar` | `870D6BFB0999D913B5F86D919F89B75B522BF790555A8ADE45F5EBAFF5E56931` |
+
+Rebuilt at HEAD `b669246` on 2026-08-14 20:41, superseding the 02:59 set
+(`135A15FC…`), which predated the receiver-control focus fix. The portable was
+run directly and confirmed to carry that fix: pressing Start by keyboard ends on
+the button rather than on `<body>`, and `/health` answered over real HTTPS.
 
 The packaged receiver was confirmed by extracting it from `app.asar`, not inferred:
 `sw.js` carries `deqr-mobile-shell-v2`, `documentStrategy`, `skipWaiting` and the
