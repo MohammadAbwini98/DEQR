@@ -100,6 +100,44 @@ of its exports were dead (one also stale, defaulting to 30 FPS against a shipped
 10) and two were duplicated in `App.tsx` in better form. `formatFileSize` and
 `getIpcError` now live in `app-model.ts` with coverage there.
 
+### DESKTOP-UI-010 — merged window chrome verified against the packaged binary
+
+The `frame: false` / custom-title-bar combination from the `b4eb147` merge is
+**confirmed correct**. Everything below was driven against
+`release/win-unpacked/deqr.exe`, not the development shell.
+
+- **Exactly one header.** The renderer reports `headerCount: 1`, and no native
+  caption is drawn: restored, `GetClientRect` equals `GetWindowRect`
+  (1024x768 both), so the native frame contributes zero pixels. `WS_CAPTION` and
+  `WS_THICKFRAME` remain set, which is how Electron keeps snap, animation and
+  resize — the style bits alone would have been misleading.
+- **Drag region is live**, probed with `WM_NCHITTEST` from a DPI-aware process:
+  title-bar empty area and brand text both return **HTCAPTION**, while all three
+  controls and the page body return **HTCLIENT**. That is exactly the split
+  `-webkit-app-region: drag` / `no-drag` is supposed to produce.
+- **Minimize, maximize/restore and close** were driven by **real clicks** on the
+  custom buttons through Chromium's input pipeline (CDP `Input.dispatchMouseEvent`
+  against a `--remote-debugging-port` launch), not `element.click()`. Each was
+  confirmed by Win32 state: minimize -> `IsIconic` true; maximize -> `IsZoomed`
+  true; second click -> restored; close -> process exited in 0 s with no stray
+  process and no port left listening. This exercises the whole path, renderer
+  button -> preload -> `handleTrusted` IPC -> `BrowserWindow`.
+- **Maximize does not clip the title bar.** Maximized the window rect is
+  `-7,-7 1453x873` against a `1440x860` work area, but the *client* rect is
+  exactly `1440x860`, so the 7 px overhang is invisible resize border and the
+  custom title bar starts at the top of the visible area. Confirmed visually.
+- **Keyboard traversal works.** Real `Tab` key events move focus
+  Minimize -> Maximize/restore -> Close, and the focus ring renders: computed
+  `box-shadow` becomes `rgba(0, 113, 227, 0.34) 0 0 0 3px`, matching
+  `--focus-ring`. The buttons are 46x44 px.
+
+Caveats, stated rather than buried: the click and keyboard evidence comes from a
+launch with `--remote-debugging-port` attached, which is not the shipping
+configuration — the renderer, preload and IPC path exercised are identical, but
+the run itself was debug-enabled. Screen-reader announcement was **not** tested.
+No screenshot of a physically dragged window exists; `HTCAPTION` is the mechanism
+Windows uses to move a window, which is why the hit test stands in for it.
+
 ### WEB-IOS-10 preparation (`f0e43db`) — gate still unexecuted
 
 Physical verification was requested and **was not performed**: no device, and
@@ -152,13 +190,17 @@ that subnet.
 2. **Packaged optical transfer to a physical iPhone is NOT EXECUTED** — the only
    remaining `DESKTOP-SEC-050` criterion. Packaging, fuses, ASAR structure and ASAR
    integrity are verified against the artifact and are no longer open.
-3. **Desktop window chrome is UNVERIFIED.** `frame: false` auto-merged onto the
-   ios2-shell renderer, which has its own custom title bar. Confirm on an unlocked
-   desktop that exactly one header renders and that dragging, minimize,
-   maximize/restore and close all work.
+3. ~~**Desktop window chrome is UNVERIFIED.**~~ **CLOSED 2026-08-14 by DESKTOP-UI-010.**
+   Exactly one header renders, the drag region hit-tests as `HTCAPTION` while the
+   controls hit-test as `HTCLIENT`, and minimize, maximize/restore, close and
+   keyboard traversal were all driven by real input against the packaged binary.
+   See the section below.
 4. **Receiver control click-through and screen-reader behaviour are UNVERIFIED.**
    Nobody has pressed Start in the running app, watched `starting -> running`, or
    confirmed focus survives the transition. Static ARIA counts are not evidence.
+   **This is now cheap to close**: the CDP technique in DESKTOP-UI-010 drives real
+   clicks against the packaged renderer, so the `PwaHostCard` Start path can be
+   exercised the same way. Screen-reader announcement still needs a human.
 5. **Sender FPS is unchanged at 10** and remains an unvalidated hypothesis. The
    planned sweep is 6/8/10/12/15, measured by useful unique recovered payload
    throughput, not frames displayed. Do not raise it without device evidence.
