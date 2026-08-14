@@ -181,14 +181,19 @@ never rebuilds the portable**. Rebuilt with `npm run dist`.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `release/deqr 0.1.0.exe` (portable) | `16976EE1A2042E4DB425E0776A212F69D371D41015539900B3D918EAA3DE9E9D` |
-| `release/deqr Setup 0.1.0.exe` (NSIS) | `51FB940E79B6A88EADED1AA956EF4D55C2092B1904BAB9A689B1C3C2545BADBF` |
-| `resources/app.asar` | `870D6BFB0999D913B5F86D919F89B75B522BF790555A8ADE45F5EBAFF5E56931` |
+| `release/deqr 0.1.0.exe` (portable) | `6DA0D07B06C997317E38432A9A9771CD226A88A8C8E296868D378A09D3B86921` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | `6BA4DA589E82D0002B973E4B8E7389E0F450AD04C21C707A6E68EFF3B5BD1805` |
+| `resources/app.asar` | `115871EB3035FFD6E5F2E04C9F684B42A813B020642720852869EF51159017BA` |
 
-Rebuilt at HEAD `b669246` on 2026-08-14 20:41, superseding the 02:59 set
-(`135A15FC…`), which predated the receiver-control focus fix. The portable was
-run directly and confirmed to carry that fix: pressing Start by keyboard ends on
-the button rather than on `<body>`, and `/health` answered over real HTTPS.
+Rebuilt at HEAD `3e6b518` on 2026-08-15 00:54. **This is the first artifact set
+containing the shutdown-crash and scanner-stall fixes**; every earlier build,
+including `16976EE1…`, ships the crash. Verified rather than assumed: the
+portable was run, a real transfer started to 36 frames, and closing it exited in
+2.4 s with no error dialog, no `Object has been destroyed`, and no orphaned
+process. Both fixes were also confirmed inside `app.asar` by extraction —
+`isRendererAlive`, `deliverToRenderer` and `disposeAll` in the main bundle,
+`stalledRecoveries` and the "Scanner restarts" row in the PWA bundle, and
+`deqr-mobile-shell-v2` with the document strategy in `sw.js`.
 
 The packaged receiver was confirmed by extracting it from `app.asar`, not inferred:
 `sw.js` carries `deqr-mobile-shell-v2`, `documentStrategy`, `skipWaiting` and the
