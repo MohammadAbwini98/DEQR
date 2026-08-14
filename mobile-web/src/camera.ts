@@ -3,6 +3,12 @@ import { RawQrDecoder } from './decoder';
 const SCAN_INTERVAL_MS = 90;
 const MAX_ROI_EDGE = 720;
 const MIN_ROI_EDGE = 96;
+/**
+ * How long the loop waits on `requestVideoFrameCallback` before driving itself.
+ * Long enough not to pre-empt a healthy camera at any sane frame rate, short
+ * enough that a stall costs a fraction of a second rather than the session.
+ */
+const PRESENT_WATCHDOG_MS = 500;
 
 export interface CameraMetrics {
   capturedFrames: number;
@@ -10,6 +16,8 @@ export interface CameraMetrics {
   cameraAverageMs: number;
   decodeAverageMs: number;
   roiEdge: number;
+  /** Times the watchdog had to restart a loop the video never woke. */
+  stalledRecoveries: number;
 }
 
 /**
@@ -28,7 +36,7 @@ export class CameraController {
   private canvasWidth = 0;
   private canvasHeight = 0;
   private nextCaptureAt = 0;
-  private metrics = { capturedFrames: 0, decodedFrames: 0, cameraMs: 0, decodeMs: 0, roiEdge: 0 };
+  private metrics = { capturedFrames: 0, decodedFrames: 0, cameraMs: 0, decodeMs: 0, roiEdge: 0, stalledRecoveries: 0 };
   private lastMetricReportAt = 0;
 
   constructor(
@@ -85,12 +93,7 @@ export class CameraController {
 
   stop(): void {
     this.generation++;
-    if (this.timeout !== undefined) window.clearTimeout(this.timeout);
-    this.timeout = undefined;
-    if (this.videoFrameHandle !== undefined && typeof this.video.cancelVideoFrameCallback === 'function') {
-      this.video.cancelVideoFrameCallback(this.videoFrameHandle);
-    }
-    this.videoFrameHandle = undefined;
+    this.clearPending();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = undefined;
     this.video.pause();
@@ -104,32 +107,71 @@ export class CameraController {
     this.context = undefined;
   }
 
+  /** Drops whichever wake-ups are armed, so only one can ever drive a step. */
+  private clearPending(): void {
+    if (this.timeout !== undefined) window.clearTimeout(this.timeout);
+    this.timeout = undefined;
+    if (this.videoFrameHandle !== undefined && typeof this.video.cancelVideoFrameCallback === 'function') {
+      this.video.cancelVideoFrameCallback(this.videoFrameHandle);
+    }
+    this.videoFrameHandle = undefined;
+  }
+
+  /**
+   * Arms the next step.
+   *
+   * `requestVideoFrameCallback` fires only when the element actually presents a
+   * frame, so on its own it is not a loop: if the camera never starts
+   * presenting, or the stream stalls after a lifecycle transition, it simply
+   * never fires and scanning stops for good with the preview still claiming to
+   * be active. It is therefore always paired with a timer, and the first of the
+   * two to fire cancels the other.
+   */
   private schedule(generation: number): void {
-    if (generation !== this.generation || !this.stream || document.hidden) return;
+    if (generation !== this.generation || !this.stream) return;
+    this.clearPending();
+
     const video = this.video;
+    const step = (now: number, recovered: boolean) => {
+      this.clearPending();
+      if (recovered) this.metrics.stalledRecoveries++;
+      this.onVideoFrame(generation, now);
+    };
+
     if (typeof video.requestVideoFrameCallback === 'function') {
-      this.videoFrameHandle = video.requestVideoFrameCallback((now) => {
-        this.videoFrameHandle = undefined;
-        this.onVideoFrame(generation, now);
-      });
+      this.videoFrameHandle = video.requestVideoFrameCallback((now) => step(now, false));
+      this.timeout = window.setTimeout(() => step(performance.now(), true), PRESENT_WATCHDOG_MS);
       return;
     }
 
-    this.timeout = window.setTimeout(() => this.onVideoFrame(generation, performance.now()), SCAN_INTERVAL_MS);
+    this.timeout = window.setTimeout(() => step(performance.now(), false), SCAN_INTERVAL_MS);
   }
 
   private onVideoFrame(generation: number, now: number): void {
-    if (generation !== this.generation || !this.stream || document.hidden) return;
+    if (generation !== this.generation || !this.stream) return;
+
+    // Backgrounded: do not read pixels, but keep a wake-up armed. Returning
+    // early without one is what left the loop unable to resume.
+    if (document.hidden) {
+      this.timeout = window.setTimeout(() => this.schedule(generation), SCAN_INTERVAL_MS);
+      return;
+    }
+
     const waitMs = this.nextCaptureAt - now;
     if (waitMs > 1) {
       this.timeout = window.setTimeout(() => this.schedule(generation), waitMs);
       return;
     }
 
-    void this.capture(generation).finally(() => {
-      this.nextCaptureAt = performance.now() + SCAN_INTERVAL_MS;
-      this.schedule(generation);
-    });
+    // A single unreadable frame must not end the session. `drawImage` and
+    // `getImageData` can both throw on a stream that is mid-teardown, and
+    // without this the rejection escapes unhandled while the loop carries on.
+    void this.capture(generation)
+      .catch(() => undefined)
+      .finally(() => {
+        this.nextCaptureAt = performance.now() + SCAN_INTERVAL_MS;
+        this.schedule(generation);
+      });
   }
 
   private async capture(generation: number): Promise<void> {
@@ -193,6 +235,7 @@ export class CameraController {
       cameraAverageMs: this.metrics.cameraMs / captured,
       decodeAverageMs: this.metrics.decodeMs / captured,
       roiEdge: this.metrics.roiEdge,
+      stalledRecoveries: this.metrics.stalledRecoveries,
     });
   }
 }

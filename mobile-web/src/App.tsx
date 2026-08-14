@@ -372,6 +372,10 @@ export default function App() {
             <div><dt>QR codes read</dt><dd>{metrics?.decodedFrames ?? 0}</dd></div>
             <div><dt>Duplicates ignored</dt><dd>{snapshot.duplicates}</dd></div>
             <div><dt>Other transfer</dt><dd>{snapshot.foreignFrames}</dd></div>
+            {/* Non-zero means the video stopped presenting frames and the
+                watchdog restarted the loop. It separates "the scanner died"
+                from "the code will not decode". */}
+            {Boolean(metrics?.stalledRecoveries) && <div><dt>Scanner restarts</dt><dd>{metrics!.stalledRecoveries}</dd></div>}
             {scanTiming && <div className="wide"><dt>Local scanner timing</dt><dd>{scanTiming}</dd></div>}
           </dl>
         </details>

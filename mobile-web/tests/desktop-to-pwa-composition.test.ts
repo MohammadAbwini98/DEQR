@@ -49,6 +49,64 @@ function senderContainer(source: Buffer, filename: string): Buffer {
   });
 }
 
+/** Deterministic drop decisions, so a failure reproduces exactly. */
+function lossSequence(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+}
+
+/**
+ * Drives the real production path end to end with frames dropped on the way,
+ * which is what an optical link actually does. The QR raster step is exercised
+ * separately by `serialized-frame-qr-fidelity` and `qr-binary-fidelity`; at
+ * these sizes painting every frame would cost minutes without testing anything
+ * those two do not already prove byte-for-byte.
+ */
+async function transferUnderLoss(source: Buffer, lossPercent: number, seed: number) {
+  const encoder = new FountainEncoder(senderContainer(source, 'matrix.bin'), BLOCK_SIZE, seed);
+  const receiver = new ReceiverSession();
+  const blockCount = encoder.getBlockCount();
+  const nextRandom = lossSequence(seed);
+  const frameBudget = blockCount * 4 + 512;
+
+  let emitted = 0;
+  let accepted = 0;
+  let snapshot = receiver.snapshot();
+  while (emitted < frameBudget && snapshot.state !== 'VERIFYING') {
+    const frame = new Uint8Array(serializeFrame(encoder.nextFrame()));
+    emitted += 1;
+    if (nextRandom() * 100 < lossPercent) continue;
+    accepted += 1;
+    snapshot = receiver.receive(frame);
+    if (snapshot.state === 'FAILED') throw new Error('receiver rejected a valid frame');
+  }
+
+  expect(snapshot.state, `did not complete within ${frameBudget} frames`).toBe('VERIFYING');
+  const verified = await receiver.verify();
+  return { verified, blockCount, emitted, accepted };
+}
+
+describe('desktop to PWA reconstruction matrix', () => {
+  it.each([
+    ['5 KiB', 5 * 1024, 20],
+    ['100 KiB', 100 * 1024, 20],
+    ['500 KiB', 500 * 1024, 15],
+    ['1 MiB', 1024 * 1024, 10],
+  ])('reconstructs %s byte-for-byte under simulated frame loss', async (_label, size, loss) => {
+    const source = Buffer.from(Uint8Array.from({ length: size }, (_, index) => (index * 131 + 29) & 0xff));
+    const { verified, blockCount, emitted, accepted } = await transferUnderLoss(source, loss, 0x5eed_1234);
+
+    expect(blockCount).toBe(Math.ceil((size + 60) / BLOCK_SIZE));
+    expect(accepted).toBeLessThan(emitted);
+    expect(verified.state).toBe('COMPLETE');
+    expect(Buffer.from(verified.verified!.bytes)).toEqual(source);
+    expect(Buffer.from(verified.verified!.sha256)).toEqual(computeSha256(source));
+  }, 300_000);
+});
+
 describe('desktop sender to PWA receiver composition', () => {
   it('reconstructs and verifies a multi-frame transfer through real painted QR codes', async () => {
     const source = Buffer.from(Uint8Array.from({ length: 2 * 1024 }, (_, index) => (index * 31 + 7) & 0xff));
