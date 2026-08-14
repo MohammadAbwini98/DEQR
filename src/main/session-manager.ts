@@ -156,6 +156,20 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Releases every session and the timers they own.
+   *
+   * Transfer intervals are Node timers with no relationship to the window that
+   * started them, so without this they keep firing while Electron tears the
+   * renderer down. Shutdown has to end them explicitly rather than relying on
+   * the process exiting first.
+   */
+  public disposeAll(): void {
+    for (const sessionId of [...this.sessions.keys()]) {
+      this.removeSession(sessionId);
+    }
+  }
+
   public stopTransfer(session: SessionState) {
     if (session.activeTransfer) {
       if (session.activeTransfer.intervalId !== null) {

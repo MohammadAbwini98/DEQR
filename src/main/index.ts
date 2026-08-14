@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 import * as path from 'path';
 import { registerIpcHandlers } from './ipc-handlers';
+import { globalSessionManager } from './session-manager';
 import {
   evaluateMediaPermission,
   isAllowedRendererRequest,
@@ -134,6 +135,17 @@ function createWindow() {
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     reportRendererLifecycle('PROCESS_GONE', `reason=${details.reason} exitCode=${details.exitCode}`);
+    // The renderer this transfer was feeding is gone; its timers must not
+    // outlive it waiting for a window that will never come back.
+    globalSessionManager.disposeAll();
+  });
+
+  // A transfer interval is a Node timer, so closing the window does not stop
+  // it. Left running it keeps encoding frames for a destroyed renderer, and its
+  // `send` throws where nothing can catch it. Release the sessions with the
+  // window that owns them.
+  mainWindow.on('closed', () => {
+    globalSessionManager.disposeAll();
   });
 
   if (!app.isPackaged) {
@@ -216,6 +228,9 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  // Quitting can begin before any window closes, so this is not covered by the
+  // window handler above.
+  globalSessionManager.disposeAll();
   // A no-op when the host was never started, and it chains behind an in-flight
   // start so a half-open server cannot outlive the app.
   void pwaHostLifecycle.stop();

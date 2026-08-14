@@ -271,9 +271,61 @@ export function registerIpcHandlers() {
   });
 }
 
+/**
+ * Whether a renderer can still receive IPC.
+ *
+ * Destroying a BrowserWindow destroys its WebContents, so this covers a closed
+ * window as well as a gone renderer, and it tests the object whose `send`
+ * actually throws. The call itself is guarded because a sufficiently torn-down
+ * native handle can throw from `isDestroyed` too.
+ */
+function isRendererAlive(webContents: Electron.WebContents | undefined): boolean {
+  if (!webContents) return false;
+  try {
+    return !webContents.isDestroyed();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delivers a frame to a renderer that is still there, and ends the session when
+ * it is not.
+ *
+ * Transfer timers outlive the window: the interval is a Node timer, so it keeps
+ * firing while Electron tears the renderer down, and a throw from inside a timer
+ * callback reaches no caller — it surfaces as Electron's "A JavaScript error
+ * occurred in the main process" dialog. Checking liveness is the fix; the catch
+ * is only a floor under a destruction that lands between the check and the send.
+ */
+function deliverToRenderer(
+  webContents: Electron.WebContents,
+  session: SessionState,
+  channel: string,
+  ...args: unknown[]
+): boolean {
+  if (!isRendererAlive(webContents)) {
+    // Nothing will ever observe this session again, so stop encoding for it.
+    globalSessionManager.removeSession(session.id);
+    return false;
+  }
+
+  try {
+    webContents.send(channel, ...args);
+    return true;
+  } catch {
+    globalSessionManager.removeSession(session.id);
+    return false;
+  }
+}
+
 function generateFrame(webContents: Electron.WebContents, session: SessionState) {
   if (!session.encoder || !session.activeTransfer) return;
-  
+  if (!isRendererAlive(webContents)) {
+    globalSessionManager.removeSession(session.id);
+    return;
+  }
+
   const frame = session.encoder.nextFrame();
   const payload = serializeFrame(frame);
   
@@ -291,12 +343,16 @@ function generateFrame(webContents: Electron.WebContents, session: SessionState)
     effectiveFps: elapsedMs > 0 ? transfer.framesGenerated * 1_000 / elapsedMs : 0,
   };
 
-  webContents.send(`transfer:frame:${session.id}`, payload, stats);
+  deliverToRenderer(webContents, session, `transfer:frame:${session.id}`, payload, stats);
 }
 
 function loopbackFrame(webContents: Electron.WebContents, session: SessionState, options: any) {
   if (!session.encoder || !session.activeLoopback) return;
-  
+  if (!isRendererAlive(webContents)) {
+    globalSessionManager.removeSession(session.id);
+    return;
+  }
+
   const frame = session.encoder.nextFrame();
   
   // Track received locally on activeLoopback
@@ -332,7 +388,7 @@ function loopbackFrame(webContents: Electron.WebContents, session: SessionState,
     }
   }
 
-  webContents.send(`loopback:stats:${session.id}`, stats);
+  deliverToRenderer(webContents, session, `loopback:stats:${session.id}`, stats);
 
   // Send final state before releasing the container bytes. The renderer may
   // follow completion with an idempotent cancel request, which then observes
