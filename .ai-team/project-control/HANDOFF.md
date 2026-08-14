@@ -138,6 +138,38 @@ the run itself was debug-enabled. Screen-reader announcement was **not** tested.
 No screenshot of a physically dragged window exists; `HTCAPTION` is the mechanism
 Windows uses to move a window, which is why the hit test stands in for it.
 
+### DESKTOP-UI-011 — receiver control verified, and a focus defect fixed
+
+Pressing Start and Stop by real keyboard input against the packaged binary
+worked, and the receiver lifecycle is sound: `stopped -> running` bound
+`0.0.0.0:5174`, `GET /health` answered `200 application/json` with `no-store`
+and the CSP header over real HTTPS, and stop released the port. `aria-busy`
+toggled `false -> true -> false`, the live region text tracked each state, and
+the control was **not** remounted across the transition.
+
+**The gate did not pass on first run.** Keyboard focus was dropped to `<body>`
+and never came back. The mechanism was isolated rather than guessed: focusing
+the control and setting `disabled = true` gives `stillFocusedWhenDisabled:
+false`, `focusLandedOn: BODY`, and re-enabling gives `refocusedOnReenable:
+false`. So the single-non-remounted-button design — which does work, and is why
+`sameNode` stayed true — was defeated anyway by `actionDisabled`. A keyboard
+user pressing Enter on *Start receiver* landed at the top of the document and
+had to tab back to reach *Stop receiver*.
+
+Fixed by `shouldRestoreActionFocus` in `pwa-host-model.ts`, called from an
+effect that runs when the control is enabled again. It reclaims focus **only**
+when the control had it, the transition has settled, and focus is sitting on
+`<body>` — if someone moved focus somewhere real while the receiver was
+starting, taking it back would be its own bug. The decision lives in the model
+because the renderer suite is node-environment with no component-testing
+harness, which keeps it unit-testable without adding one.
+
+Re-verified against a rebuilt package: Start now ends on `activeEl: THE BUTTON`
+where it previously read `BODY (focus lost)`, and the Stop trace ends
+`Stopping… (disabled, BODY) -> Start receiver (enabled, BODY) -> BUTTON`. Focus
+necessarily leaves during the disabled phase — a disabled element cannot hold
+it — so returning it once the control is usable is the achievable behaviour.
+
 ### WEB-IOS-10 preparation (`f0e43db`) — gate still unexecuted
 
 Physical verification was requested and **was not performed**: no device, and
@@ -195,12 +227,13 @@ that subnet.
    controls hit-test as `HTCLIENT`, and minimize, maximize/restore, close and
    keyboard traversal were all driven by real input against the packaged binary.
    See the section below.
-4. **Receiver control click-through and screen-reader behaviour are UNVERIFIED.**
-   Nobody has pressed Start in the running app, watched `starting -> running`, or
-   confirmed focus survives the transition. Static ARIA counts are not evidence.
-   **This is now cheap to close**: the CDP technique in DESKTOP-UI-010 drives real
-   clicks against the packaged renderer, so the `PwaHostCard` Start path can be
-   exercised the same way. Screen-reader announcement still needs a human.
+4. **Receiver control click-through: CLOSED 2026-08-14 by DESKTOP-UI-011.**
+   Start and Stop were both pressed by real keyboard input against the packaged
+   binary; the receiver bound `0.0.0.0:5174`, answered `/health` over real HTTPS,
+   and released the port on stop. Verification found and fixed a focus defect —
+   see the section below. **Screen-reader announcement remains UNVERIFIED** and
+   still needs a human with a screen reader; `aria-busy` and the polite live
+   region are correctly wired, which is the machinery, not the announcement.
 5. **Sender FPS is unchanged at 10** and remains an unvalidated hypothesis. The
    planned sweep is 6/8/10/12/15, measured by useful unique recovered payload
    throughput, not frames displayed. Do not raise it without device evidence.

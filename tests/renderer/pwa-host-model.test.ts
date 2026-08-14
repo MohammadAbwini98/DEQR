@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { presentPwaHost } from '../../src/renderer/pwa-host-model';
+import { presentPwaHost, shouldRestoreActionFocus } from '../../src/renderer/pwa-host-model';
 import { PwaHostStatusView } from '../../src/shared/types';
 
 function status(overrides: Partial<PwaHostStatusView> = {}): PwaHostStatusView {
@@ -99,6 +99,35 @@ describe('PWA host presentation', () => {
     const view = presentPwaHost(status({ state: 'failed' }), null);
 
     expect(view.message).toBe('The iPhone receiver could not be started.');
+  });
+
+  it('hands focus back only after a transition that dropped it', () => {
+    // Verified against the packaged binary (DESKTOP-UI-011): disabling the
+    // control blurs it to `<body>`, and re-enabling does not restore it, so a
+    // keyboard user who pressed Enter was left at the top of the document.
+    expect(shouldRestoreActionFocus({ hadFocus: true, actionDisabled: false, activeIsBody: true })).toBe(true);
+
+    // Still in flight: the control is disabled and cannot hold focus yet.
+    expect(shouldRestoreActionFocus({ hadFocus: true, actionDisabled: true, activeIsBody: true })).toBe(false);
+
+    // The press came from a pointer, so nothing was taken away.
+    expect(shouldRestoreActionFocus({ hadFocus: false, actionDisabled: false, activeIsBody: true })).toBe(false);
+
+    // Focus moved somewhere real while the receiver was starting. Pulling it
+    // back would be its own bug.
+    expect(shouldRestoreActionFocus({ hadFocus: true, actionDisabled: false, activeIsBody: false })).toBe(false);
+  });
+
+  it('keeps the control on one node so its label changes instead of remounting', () => {
+    // A swapped control would drop focus before the restore above could run.
+    const starting = presentPwaHost(status(), 'starting');
+    const running = presentPwaHost(RUNNING, null);
+    const stopped = presentPwaHost(status(), null);
+
+    expect(starting.actionDisabled).toBe(true);
+    expect(running.actionDisabled).toBe(false);
+    expect([stopped.actionLabel, starting.actionLabel, running.actionLabel])
+      .toEqual(['Start receiver', 'Starting…', 'Stop receiver']);
   });
 
   it('lets a pending action override a stale status', () => {

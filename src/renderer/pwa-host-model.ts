@@ -26,6 +26,31 @@ const STOPPED_HINT =
 const FAILED_HINT =
   'Connect this computer to the same network as the iPhone, or to your tailnet, then try again. If a development server is already using this port, stop it first.';
 
+export interface ActionFocusRestore {
+  /** The control held focus when the action was requested. */
+  hadFocus: boolean;
+  /** True while the transition is in flight and the control is disabled. */
+  actionDisabled: boolean;
+  /** Focus is sitting on `<body>`, i.e. it was dropped rather than moved. */
+  activeIsBody: boolean;
+}
+
+/**
+ * Whether focus has to be handed back to the start/stop control.
+ *
+ * The control is disabled while a transition is in flight, and a browser blurs
+ * a disabled element to `<body>` and does not restore it on re-enable. Keeping
+ * one non-remounted button was not enough on its own: a keyboard user who
+ * pressed Enter still landed at the top of the document and had to tab back to
+ * the button they had just used.
+ *
+ * Only a dropped focus is reclaimed. If someone moved focus somewhere else
+ * while the receiver was starting, taking it back would be its own bug.
+ */
+export function shouldRestoreActionFocus(state: ActionFocusRestore): boolean {
+  return state.hadFocus && !state.actionDisabled && state.activeIsBody;
+}
+
 export function presentPwaHost(
   status: PwaHostStatusView | null,
   pending: PwaHostPendingAction,

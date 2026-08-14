@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { PwaHostStatusView } from '../../shared/types';
-import { PwaHostPendingAction, presentPwaHost } from '../pwa-host-model';
+import { PwaHostPendingAction, presentPwaHost, shouldRestoreActionFocus } from '../pwa-host-model';
 
 /**
  * Starts and stops the iPhone receiver, and shows how to reach it while it is
@@ -25,6 +25,8 @@ const KIND_HINT: Record<string, string> = {
 
 export default function PwaHostCard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
+  const reclaimFocus = useRef(false);
   const [status, setStatus] = useState<PwaHostStatusView | null>(null);
   const [pending, setPending] = useState<PwaHostPendingAction>(null);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
@@ -57,6 +59,9 @@ export default function PwaHostCard() {
   }, []);
 
   const runAction = async (kind: 'start' | 'stop') => {
+    // Disabling the control below blurs it, so note whether it is losing focus
+    // that has to be handed back once the transition settles.
+    reclaimFocus.current = document.activeElement === actionRef.current;
     // Set the optimistic state before awaiting: generating a certificate blocks
     // the main process, but this renderer keeps painting, so the button has to
     // respond without waiting for a reply.
@@ -73,6 +78,22 @@ export default function PwaHostCard() {
   };
 
   const view = presentPwaHost(status, pending);
+
+  // Runs after the control is enabled again. The label has changed by now, so
+  // focus returns to the action the person is most likely to want next rather
+  // than to the top of the document.
+  useEffect(() => {
+    if (!shouldRestoreActionFocus({
+      hadFocus: reclaimFocus.current,
+      actionDisabled: view.actionDisabled,
+      activeIsBody: document.activeElement === document.body,
+    })) {
+      if (!view.actionDisabled) reclaimFocus.current = false;
+      return;
+    }
+    reclaimFocus.current = false;
+    actionRef.current?.focus();
+  }, [view.actionDisabled]);
 
   // Validate the chosen address against the live list rather than holding it,
   // so a stop, a network change, and a start cannot leave a dead URL selected.
@@ -184,9 +205,13 @@ export default function PwaHostCard() {
 
       {/* Deliberately one button whose label and handler change, not several
           swapped by state. Remounting the control would drop keyboard focus at
-          the exact moment the person just pressed it. */}
+          the exact moment the person just pressed it. That alone was not
+          enough: the control is disabled while the transition runs, which
+          blurs it to `<body>` and does not restore it, so the effect above
+          hands focus back. */}
       <div className="action-row">
         <button
+          ref={actionRef}
           type="button"
           className={view.actionClassName}
           disabled={view.actionDisabled}
