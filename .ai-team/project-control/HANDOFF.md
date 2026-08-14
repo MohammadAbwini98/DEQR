@@ -2,195 +2,233 @@
 
 ## Current status
 
-- **Date**: 2026-08-10
+- **Date**: 2026-08-14
+- **Branch / HEAD**: `main` at `f0e43db`, level with `origin/main`, worktree clean
 - **Active workstream**: WEB-IOS Safari PWA receiver (`mobile-web/`)
-- **Local remediation gate**: CONDITIONAL PASS
-- **Release / physical acceptance**: OPEN — no promotion authorized
+- **Desktop suite**: 24 files / 278 tests PASS
+- **PWA suite**: 10 files / 47 tests PASS
+- **Typechecks, builds, `test:packaged`, doctor (0 warnings), drift**: PASS
+- **Release / physical acceptance**: **NOT ACCEPTED** — `WEB-IOS-10` fully unexecuted, `DESKTOP-SEC-050` conditional
 
-### 2026-08-11 receiver address selection (corrected)
+## Read this first — corrections to older sections below
 
-- **Prefer the Tailscale address, not the LAN address.** The first cut of the
-  host ranked 192.168/10/172.16-31 above mesh-VPN addresses and regressed the
-  established workflow, which used `https://100.95.40.3:5174/`.
-- On this host the LAN default cannot work: the Ethernet adapter holding
-  `192.168.100.41` is on the **Public** firewall profile with **no inbound rule
-  for port 5174**, while the iPhone is already an enrolled tailnet node.
-- HTTPS was never the problem. The certificate covers all addresses
-  (`DNS:localhost, IP:127.0.0.1, IP:192.168.100.41, IP:100.95.40.3`) and the
-  server binds every interface. The receiver was verified loading over
-  `https://100.95.40.3:5174/`.
-- The dashboard now shows every address with a Tailscale / Local network switch
-  instead of silently guessing. Startup logs `preferred=overlay`.
-- If someone deliberately chooses **Local network**, they must add an inbound
-  Windows Firewall rule for port 5174 and keep the phone on that subnet.
+The dated sections further down are kept as history. Four of their statements are
+now wrong, and one of them instructs you to assert something false. Trust this
+list over anything below it.
 
-### 2026-08-11 packaged iPhone receiver hosting
+1. **The packaged app no longer opens a port by itself.** The 2026-08-11 section
+   says the app "accepts inbound LAN connections" and prompts Windows Firewall on
+   first run, and tells you not to restate the no-listener claim. `DESKTOP-PWA-HOST-006`
+   (`831ddb8`) retired that. The receiver is **off at launch** and binds nothing
+   until someone presses **Start receiver**. An unattended launch opens no inbound
+   port and raises no firewall prompt. The original characterisation still applies
+   only *while it is running*: static assets only, no transferred payload through it.
+2. **The repository path is `D:\Projects\DEQR`.** The old "safe next task" says
+   `D:\Projects\DEQR-ios2`, which does not exist here.
+3. **Do not use `run-local` for iPhone work.** `scripts/run-local.ps1` defaults to
+   `-PwaPort 5174`, the exact port the desktop receiver now wants, so the launcher
+   and **Start receiver** fight over it. The launcher is for desktop-browser PWA
+   development. For a phone, use the packaged app, which serves the receiver itself.
+4. **Committing and pushing is no longer withheld.** The old closing line predates
+   the current arrangement; work has been committed and pushed through `f0e43db`.
 
-- The packaged desktop app now **publishes the iPhone receiver itself** over LAN
-  HTTPS on port 5174 and shows the address on its dashboard as a scannable QR
-  code and as text. Starting a Vite development server is no longer required to
-  use a phone.
-- The receiver builds to `dist/pwa` and ships inside `app.asar`. `npm run package`
-  and `npm run dist` build it automatically; a contract test fails if that wiring
-  is removed.
-- The TLS certificate is generated on first run and stored under `userData`, then
-  reused, so the iPhone only has to trust it once. `DEQR_HTTPS_CERT`/`DEQR_HTTPS_KEY`
-  still override it.
-- The server is read-only and confined: `GET`/`HEAD` only, containment enforced
-  inside the served directory, and rejection of encoded traversal, encoded
-  backslashes, drive-qualified paths, null bytes, and undecodable escapes.
-- **`frame-ancestors 'none'` is now actually enforced** because the policy ships as
-  a real response header. That closes the response-header half of
-  `WEB-IOS-SEC-003` for the shipping path.
-- **New exposure to keep in mind:** the packaged app now accepts inbound LAN
-  connections. It serves only static application assets — no transferred payload
-  passes through it — but Windows Firewall prompts on first run, and the network
-  posture is now "no outbound external access plus one deliberate read-only
-  inbound service", not "no sockets at all". Do not restate the older
-  no-listener claim.
-- Physical validation of installing and running the receiver from this hosted
-  origin on an iPhone is **still open** under `WEB-IOS-10`.
+`WEB-IOS-SEC-003` has also moved: the response-header half is **closed for the
+shipping path**, because the packaged host sends the CSP as a real header, so
+`frame-ancestors` is enforced rather than ignored. The `<meta>` limitation still
+applies to any separate web deployment of the PWA.
 
-### 2026-08-10 physical + packaged acceptance
+## 2026-08-13 / 08-14 — most recent work
 
-- **Verdict: NOT ACCEPTED.** `DESKTOP-SEC-050` is **CONDITIONAL**; `WEB-IOS-10` is **BLOCKED**.
-- **`WEB-IOS-10` was not executed at all.** No physical iPhone was available. Do not
-  record any part of the physical matrix as passed, and do not treat the packaged smoke
-  test, the Node proxy benchmark, or any local browser review as a substitute for it.
-- **`DESKTOP-SEC-050` passed every criterion that does not need a device.** The package was
-  built and hashed; all six required Electron fuses were read out of the built binary with
-  `scripts/ci/inspect-packaged-fuses.js`; ASAR structure was verified with nothing
-  unpacked; ASAR runtime integrity was proven by four targeted tamper cases, each rejected
-  before readiness; the packaged renderer and preload load cleanly and exit clean; the
-  packaged CSP carries no development allowance; network isolation, permission policy, and
-  the preload boundary all hold. Only the packaged optical transfer to a real iPhone is
-  missing.
-- **One real defect was found and fixed.** `tests/main/permissions.test.ts` was validating a
-  hand-copied duplicate of the Electron permission handlers, and that copy had diverged
-  from the shipped parsed-URL policy — it trusted host-bearing `file://` URLs that
-  production correctly rejects. Production was the stricter side, so nothing shipped was
-  vulnerable, but the 11-point permission matrix was certifying code that is not shipped.
-  `evaluateMediaPermission` now lives in `src/main/development-request-policy.ts` and both
-  handlers plus the tests share it.
-- **Regression after the fix**: desktop 19 files / 168 tests PASS; PWA 7 files / 25 tests
-  PASS; both typechecks, both builds, `test:packaged`, doctor (0 warnings), drift,
-  `git diff --check`, and the combined HTTPS launcher all PASS.
-- **Sender FPS is unchanged at 10.** It stays an unvalidated hypothesis until measured on a
-  device. Do not change it without physical evidence.
-- Full evidence: `.ai-team/reports/testing/WEB-IOS-PHYSICAL-PACKAGED-ACCEPTANCE-REPORT.md`
-  and the raw logs in `.ai-team/reports/testing/acceptance-evidence/`.
+### WEB-IOS-PWA-011 — reported iPhone receiver failure (`1041a0b`, `1f6131d`)
 
-### 2026-08-10 UX/performance validation
+Four symptoms were reported: no data received, the app opening whether or not the
+receiver ran, no service indicator, and a misaligned "Return to home".
 
-- WEB-IOS-UXPERF-003 completed its bounded source implementation and local validation. The final verdict is **NOT ACCEPTED** because corrected physical-iPhone and packaged-runtime gates remain open.
-- Desktop: 17 test files / 141 tests, typecheck, production build, doctor, drift check, diff check, and the actual combined launcher passed. The launcher emitted `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available` and cleaned ports 5173/5174.
-- PWA: 7 test files / 25 tests, typecheck, production build, deterministic serialized-frame QR fidelity, and a local 390x844 home/camera-recovery visual review passed. The test browser had no camera.
-- The sender now serializes the complete v1 container before fountain encoding. PWA camera/worker work is bounded and backpressured; React metrics are coalesced; terminal verification is immediate and single-flight.
-- PWA and Electron flows now have explicit actions and terminal states, meaningful focus, concise live announcements, inline camera recovery, high-contrast static scan surfaces, and restrained reduced-preference-aware motion.
-- The existing SVG logo is unchanged; deterministic PNGs exist at 16/32/64/180/192/512 pixels.
-- Full evidence and the 5 KiB-1 MiB proxy matrix are in `.ai-team/reports/testing/WEB-IOS-UXPERF-003-FINAL-REPORT.md`.
+- **The receive path was cleared by evidence, not assumption.**
+  `mobile-web/tests/desktop-to-pwa-composition.test.ts` drives real desktop frames
+  through real painted QR codes and jsQR into `ReceiverSession` to a verified
+  SHA-256, covering repair-only recovery, duplicate oversampling and a foreign
+  session. The shipped worker chunk was separately confirmed in a browser to return
+  a 532-byte frame byte-exact. **Do not re-investigate the protocol first.**
+- **The defect that can strand a phone was the service worker.** It answered every
+  same-origin GET from a fixed `deqr-mobile-shell-v1` cache, including the HTML
+  document, with no `skipWaiting` and no update path, and `sw.js` had not changed
+  since it was introduced while `mobile-web/src` had. A phone that installed before
+  `0e3e6dc` could never be given a fix. Now: network-first for documents with a
+  cached offline fallback, cache-first only for hashed `/assets/`, `-v2` cache,
+  immediate claim, `/health` never intercepted. Offline installability is retained
+  deliberately — an installed receiver is meant to open with no host at all.
+- **Host reachability is now measurable.** The desktop answers a constant,
+  `no-store` `GET /health`, matched before the single-page fallback that would
+  otherwise return the HTML shell for it. The PWA polls it while visible and shows
+  *Checking receiver* / *Receiver online* / *Receiver unavailable* in text.
+- **A dead scanner now says so** instead of resolving empty forever, and scan
+  details count QR reads and frames belonging to another transfer.
+- Tracked follow-up: **ISSUE-006** — a session that latches onto one transfer
+  silently discards a second one. The count is now visible; whether to offer an
+  explicit "switch transfer" action is an open product decision.
+
+### DESKTOP-IPC-007 — dead preload channel (`780cb51`)
+
+`loopback.saveVerifiedResult` was exposed and typed but no handler ever answered
+it, and nothing ever called it. Removed rather than implemented: loopback
+re-decodes a file already on local disk and releases the session the moment
+decoding completes, so there was never an artifact to save.
+`tests/main/ipc-contract.test.ts` now derives both sides from production and fails
+if any preload invoke channel lacks a main handler.
+
+### DESKTOP-SEC-008 — privileged IPC authenticates its caller (`d875249`, ADR-010)
+
+All 15 renderer-to-main channels register through a `handleTrusted` wrapper backed
+by `src/main/ipc-sender-policy.ts`. Trusts the packaged `file:` renderer always and
+the exact development origin **only when unpackaged**; rejects `data:`,
+`devtools:`, the PWA origin on 5174, every subframe, and any unreadable sender
+frame. Fail-closed with a sanitized `IPC_SENDER_REJECTED`; the frame URL is never
+logged because it can carry a filesystem path.
+
+`isTrustedRendererOrigin` was deliberately **not** reused: it also accepts `data:`
+and `devtools:`, and takes no `isPackaged`, so reusing it would have trusted
+`http://localhost:5173` inside a shipped app. **If you add an IPC channel, register
+it with `handleTrusted`** — the enumeration test will fail by name otherwise.
+
+Test mocks of `electron` must now supply `app.isPackaged` and a `senderFrame`.
+
+### DESKTOP-UI-009 — orphaned renderer model (`d448ec3`)
+
+`src/renderer/ui-model.ts` was deleted. It was stranded by the `b4eb147` merge; two
+of its exports were dead (one also stale, defaulting to 30 FPS against a shipped
+10) and two were duplicated in `App.tsx` in better form. `formatFileSize` and
+`getIpcError` now live in `app-model.ts` with coverage there.
+
+### WEB-IOS-10 preparation (`f0e43db`) — gate still unexecuted
+
+Physical verification was requested and **was not performed**: no device, and
+`tailscale status` showed `iphone-13-mini` offline, last seen 2 days ago.
+
+One hazard was caught: `release/deqr 0.1.0.exe` was a week stale while
+`release/win-unpacked/` was current, because **`npm run package` uses `--dir` and
+never rebuilds the portable**. Rebuilt with `npm run dist`.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `release/deqr 0.1.0.exe` (portable) | `135A15FC240B8867E63070C575DECC24C41E181BC2724B5D8D928B1A332DF1A8` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | `6F4DA9A3C1B64C8E67EFD88783EC2483691743BB41D56C939CD42396319187E8` |
+| `resources/app.asar` | `FED5A9609C2A10AE69A36C221CE622D08EDC8363AB1CB943B484466C188B6490` |
+
+The packaged receiver was confirmed by extracting it from `app.asar`, not inferred:
+`sw.js` carries `deqr-mobile-shell-v2`, `documentStrategy`, `skipWaiting` and the
+`/health` bypass. Portable readiness proven by control experiment, because a
+portable wrapper does not surface child stdout: autoclose on → self-exited at
+5.6 s; autoclose off → still running at 20 s.
 
 ## Product direction
 
-ADR-008 is the active mobile decision. The preserved `mobile/` .NET MAUI
-sources and ADR-007 are historical/reference material only. Do not restart,
-extend, or require a Mac/Xcode path for current WEB-IOS work.
+ADR-008 is the active mobile decision. The preserved `mobile/` .NET MAUI sources
+and ADR-007 are historical reference only. Do not restart, extend, or require a
+Mac/Xcode path.
 
-The desktop sender and PWA share the DEQR v1 raw-byte protocol contract, but
-their local development origins are intentionally separate:
+Development origins are intentionally separate, and the PWA is **not** an Electron
+renderer — it is a distinct trust domain (ADR-010):
 
 - Electron renderer: `http://localhost:5173/` (exact loopback development exception)
-- PWA: port `5174`, HTTP for desktop-browser UI work and trusted HTTPS over a
-  certificate-SAN-covered LAN host for physical iPhone work
+- PWA: port `5174`, served by the packaged desktop app over LAN HTTPS for phone work
 
-## Completed in this remediation
-
-- Reproduced the white Electron client area with the exact launcher command.
-  The root cause was a shared Vite optimizer cache: the PWA server replaced the
-  desktop cache metadata, leaving Electron's static `buffer` dependency at a
-  `504 Outdated Optimize Dep` URL before React could evaluate.
-- Isolated the desktop and PWA Vite caches; retained the browser Buffer
-  optimization; moved Buffer loading into a guarded renderer bootstrap; added a
-  visible bootstrap failure path and React error boundary.
-- Hardened the launcher with response/content readiness, Buffer dependency
-  readiness, renderer-ready verification, process-tree cleanup, port collision
-  rejection, PIDs/URLs/log paths, and certificate-SAN-aware HTTPS advertising.
-- Kept Electron on loopback HTTP. No global certificate bypass, insecure-content
-  setting, disabled web security, or TLS validation override was introduced.
-- Replaced prefix-based Electron request allowlisting with parsed exact URL
-  policy; added redacted lifecycle markers and actual-policy tests.
-- Added PWA bounded streaming gzip output, blocked received-file extensions,
-  restrictive local-only CSP, and explicit camera retry/return-home recovery.
-- Applied matching desktop receive extension enforcement, container-size limit,
-  and in-memory session release on terminal paths.
-
-## Independent evidence
-
-- Desktop suite: **14 files / 131 tests PASS**
-- PWA suite: **3 files / 16 tests PASS**
-- Type checks, desktop build, PWA build, and doctor (**0 warnings**) PASS
-- Three clean launcher runs PASS: HTTP, HTTPS, and `-StartupDiagnostics`.
-  Each emitted `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER
-  preload=available` and left ports 5173/5174 closed after the test window
-  exited.
-- Detailed QA evidence: `.ai-team/reports/testing/WEB-IOS-STARTUP-REMEDIATION-QA-REPORT.md`
-- Security review: `.ai-team/reports/security/WEB-IOS-STARTUP-SECURITY-REVIEW.md`
-- Architecture topology: `.ai-team/engineering/ARCHITECTURE.md`
+Receiver address selection prefers the **Tailscale** address. On this host the LAN
+address cannot work unaided: the Ethernet adapter holding `192.168.100.41` is on
+the **Public** firewall profile with no inbound rule for 5174, while the iPhone is
+an enrolled tailnet node. Current advertised addresses are
+`https://100.95.40.3:5174/` (overlay) and `https://192.168.100.41:5174/` (private).
+Choosing Local network requires adding an inbound rule and keeping the phone on
+that subnet.
 
 ## Open gates and risks — do not relabel as passed
 
-1. Physical iPhone: trusted CA installation, firewall/reachability, camera
-   permission/retry, installed standalone PWA, offline shell, export, VoiceOver,
-   the appearance/accessibility matrix, sustained/thermal behavior, lifecycle and
-   session isolation, and the corrected desktop-to-iPhone optical transfer with
-   byte/hash comparison are **NOT EXECUTED**. No device was available.
-2. Packaged optical transfer from the packaged sender to a physical iPhone is
-   **NOT EXECUTED**. This is the only remaining `DESKTOP-SEC-050` criterion.
-   Packaging, fuses, ASAR structure, and ASAR integrity are now **verified**
-   against the artifact itself and no longer open.
-3. `WEB-IOS-SEC-003` and `WEB-IOS-DATA-004` are classified **accepted documented
-   residual risk**, not closed. The PWA still delivers CSP via `<meta>`, where
-   `frame-ancestors` is ignored per spec — an HTTP response header is required
-   before any real deployment. Failed PWA sessions retain receiver blocks in
-   memory until reset or the next capture; session isolation still holds because
-   `requestCamera` resets first, and nothing is written to disk.
-4. Optical payloads remain unencrypted by the accepted M1 decision. Do not
-   claim confidentiality.
-5. The ASAR ships third-party development residue pulled in transitively by
-   `qrcode` (a `pngjs` HTML coverage report, lint/prettier dotfiles, one vendor
-   source map, the `qrcode` CLI and its `yargs` chain). No DEQR-private material
-   and no secrets — hygiene and bloat only.
-6. ASAR integrity is validated lazily on read, plus a header hash. Bytes inside
-   files that are never loaded are not checked at launch. Expected Electron
-   behavior; state it accurately rather than claiming whole-file verification.
+1. **Physical iPhone (`WEB-IOS-10`) is NOT EXECUTED.** Trusted CA install,
+   reachability, camera permission/denial/recovery, installed standalone PWA,
+   offline shell, export to Files, VoiceOver, the appearance/accessibility matrix,
+   sustained/thermal behaviour, lifecycle and session isolation, and the corrected
+   desktop-to-iPhone optical transfer with byte/hash comparison all remain open.
+   No automated, compositional, or local-browser result substitutes for any of them.
+2. **Packaged optical transfer to a physical iPhone is NOT EXECUTED** — the only
+   remaining `DESKTOP-SEC-050` criterion. Packaging, fuses, ASAR structure and ASAR
+   integrity are verified against the artifact and are no longer open.
+3. **Desktop window chrome is UNVERIFIED.** `frame: false` auto-merged onto the
+   ios2-shell renderer, which has its own custom title bar. Confirm on an unlocked
+   desktop that exactly one header renders and that dragging, minimize,
+   maximize/restore and close all work.
+4. **Receiver control click-through and screen-reader behaviour are UNVERIFIED.**
+   Nobody has pressed Start in the running app, watched `starting -> running`, or
+   confirmed focus survives the transition. Static ARIA counts are not evidence.
+5. **Sender FPS is unchanged at 10** and remains an unvalidated hypothesis. The
+   planned sweep is 6/8/10/12/15, measured by useful unique recovered payload
+   throughput, not frames displayed. Do not raise it without device evidence.
+6. `WEB-IOS-DATA-004` and the `style-src 'unsafe-inline'` residual of
+   `WEB-IOS-SEC-003` are **accepted documented residual risk**, not closed.
+7. Optical payloads remain **unencrypted** by the accepted M1 decision (ADR-003).
+   Do not claim confidentiality.
+8. The ASAR ships third-party development residue pulled in transitively by
+   `qrcode`. No DEQR-private material and no secrets — hygiene and bloat only.
+9. ASAR integrity is validated lazily on read plus a header hash. Bytes in files
+   that are never loaded are not checked at launch. State that accurately.
+10. **DESKTOP-SEC-008 is unit-level evidence.** No test drives a hostile frame
+    against a running packaged binary; the guard is proven against the policy as
+    implemented, not against a real compromised renderer.
 
 ## Safe next task
 
-A physical iPhone is the only blocker for both open gates.
+A physical iPhone is the only blocker for both open release gates. Items 3 and 4
+above are desktop-only and need nothing but an unlocked session.
 
-Use the updated launcher from a clean environment:
+### Step 0 — prove the phone picked up the new shell
+
+Do this before anything else. A stale shell reproduces the original bug report
+exactly and would make every later result meaningless.
+
+Launch the packaged app, press **Start receiver**, open the installed PWA, and
+confirm the topbar reads **Receiver online** and that Scanning details lists
+**QR codes read** and **Other transfer**. Those exist only in the new build. If the
+old shell persists, clear the site data or reinstall the PWA, then repeat.
+
+### Then run the matrix
 
 ```powershell
-cd D:\Projects\DEQR-ios2
-.\scripts\run-local.cmd -Https
+cd D:\Projects\DEQR
+Start-Process "D:\Projects\DEQR\release\deqr 0.1.0.exe"
 ```
 
-The launcher refuses to start if ports 5173/5174 are already held; stop stale
-Vite servers first. Only use an HTTPS URL the launcher advertises. On the
-physical iPhone, install and trust the issuing CA, then record
-Safari/installed-PWA/manual evidence without exposing file contents or
-certificate keys.
+Verify the artifact first — use the 2026-08-14 hash in the table above, not the
+`80D42022…B66A` build, which predates the merge, the receiver lifecycle, the PWA
+shell fix and the IPC sender policy:
 
-Deterministic fixtures are already staged — regenerate or verify with:
+```powershell
+Get-FileHash "D:\Projects\DEQR\release\deqr 0.1.0.exe" -Algorithm SHA256
+```
+
+Do **not** start `run-local` alongside it; it takes port 5174.
+
+Deterministic fixtures with exact sizes and SHA-256 digests:
 
 ```powershell
 node scripts/ci/generate-acceptance-fixtures.js
 ```
 
-They land in `.local-run/acceptance-fixtures/` with a `MANIFEST.txt` of exact
-sizes and SHA-256 digests to compare received files against. Also repeat the
-5 KiB / 100 KiB / 1 MiB subset against the packaged portable artifact
-`release/deqr 0.1.0.exe` to close `DESKTOP-SEC-050`.
+They land in `.local-run/acceptance-fixtures/` with a `MANIFEST.txt` to compare
+received files against. Repeat the 5 KiB / 100 KiB / 1 MiB subset against the
+portable artifact to close `DESKTOP-SEC-050`.
 
-Do not commit or push the current remediation unless the product owner
-separately authorizes it.
+While scanning, watch **QR codes read** in Scanning details. If it stays at 0 while
+the scan count climbs, the failure is optical or scanner-side, not protocol — the
+protocol path already has compositional coverage. If unique blocks stall while
+**Other transfer** climbs, the phone latched onto a different session (ISSUE-006);
+reset and rescan.
+
+Record evidence without exposing file contents or certificate key material.
+
+## Evidence index
+
+- `.ai-team/reports/testing/WEB-IOS-UXPERF-003-FINAL-REPORT.md`
+- `.ai-team/reports/testing/WEB-IOS-PHYSICAL-PACKAGED-ACCEPTANCE-REPORT.md`
+- `.ai-team/reports/testing/WEB-IOS-STARTUP-REMEDIATION-QA-REPORT.md`
+- `.ai-team/reports/security/WEB-IOS-STARTUP-SECURITY-REVIEW.md`
+- `.ai-team/engineering/ARCHITECTURE.md`
+- `.ai-team/project-control/DECISIONS.md` — ADR-010 covers the IPC trust boundary
