@@ -24,7 +24,19 @@ self.addEventListener('install', (event) => {
   // Take over as soon as this build installs. Waiting for every tab to close
   // is what let a broken shell survive indefinitely.
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));
+  // Precache each entry on its own. `cache.addAll` rejects the whole batch if a
+  // single fetch fails, which fails the install and leaves the previous worker
+  // in charge — including one whose cached shell is the reason this update
+  // exists. A worker that activates with an incomplete cache still serves the
+  // network first and can fill in later; one that never installs cannot.
+  event.waitUntil(caches.open(CACHE).then((cache) => Promise.all(CORE.map(async (url) => {
+    try {
+      const response = await fetch(url, { cache: 'no-cache' });
+      if (response.ok) await cache.put(url, response);
+    } catch {
+      // Offline coverage degrades for this entry; the update still lands.
+    }
+  }))));
 });
 
 self.addEventListener('activate', (event) => {

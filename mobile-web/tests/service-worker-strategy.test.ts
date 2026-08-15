@@ -114,6 +114,24 @@ describe('receiver service worker strategy', () => {
     sw = await loadWorker();
   });
 
+  it('still installs when a precache fetch fails', async () => {
+    // `cache.addAll` is atomic: one failed fetch rejects the batch, the install
+    // fails, and the previous worker stays in charge for good — including the
+    // one whose cached shell this update exists to replace.
+    sw.setNetworkDown(true);
+    await expect(sw.install()).resolves.not.toThrow();
+    expect(sw.skipWaiting).toHaveBeenCalled();
+
+    await sw.activate();
+    expect(sw.claim).toHaveBeenCalled();
+
+    // And with the worker in charge, the document is served from the network.
+    sw.setNetworkDown(false);
+    sw.network.set(ORIGIN + '/', makeResponse('fresh-shell'));
+    const response = await sw.request(makeRequest('/', { mode: 'navigate', destination: 'document' }));
+    expect(response?.tag).toBe('fresh-shell');
+  });
+
   it('takes over immediately and evicts every earlier shell cache', async () => {
     sw.stores.set('deqr-mobile-shell-v1', new Map([[ORIGIN + '/index.html', makeResponse('stale-shell')]]));
 
@@ -171,10 +189,12 @@ describe('receiver service worker strategy', () => {
     await sw.install();
     sw.stores.get('deqr-mobile-shell-v2')!.set(ORIGIN + '/assets/index-abc123.js', makeResponse('cached-asset'));
 
+    // Count only what this request causes; install precaches over the network.
+    const before = sw.fetched.length;
     const response = await sw.request(makeRequest('/assets/index-abc123.js', { destination: 'script' }));
 
     expect(response?.tag).toBe('cached-asset');
-    expect(sw.fetched).toHaveLength(0);
+    expect(sw.fetched.length - before, 'a hashed asset must not hit the network').toBe(0);
   });
 
   it('refreshes unhashed assets in the background while answering from cache', async () => {
