@@ -26,7 +26,10 @@
     "mobile-web:test": "vitest run --config mobile-web/vitest.config.ts",
     "mobile-web:build": "npm run mobile-web:typecheck && vite build --config mobile-web/vite.config.ts",
     "package": "npm run build && npm run mobile-web:build && electron-builder --dir",
-    "dist": "npm run build && npm run mobile-web:build && electron-builder"
+    "dist": "npm run build && npm run mobile-web:build && electron-builder",
+    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1 -Action build",
+    "release:verify": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1 -Action verify",
+    "release:list": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1 -Action list"
   },
   "dependencies": {
     "buffer": "^6.0.3",
