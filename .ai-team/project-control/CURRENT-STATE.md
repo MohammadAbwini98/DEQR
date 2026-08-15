@@ -122,6 +122,25 @@
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
+## Current Release Artifacts (2026-08-15)
+
+**Authoritative record of what is currently built.** `release/` is gitignored, so its
+`RELEASE-MANIFEST.json` does not survive this machine; these hashes are the durable copy.
+
+- Built from `a14411b` on `main` at 2026-08-15 19:50:49 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `release/deqr 0.1.0.exe` (portable) | `20B912B95C891E6E648F0F0CC54AD829D071121FB562F98C3AE7B47192ADCF1B` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | `566AC6A3C7FDB4C26B2C7EE705F6D71F5B59D0474A0C2638FDFB29905B41FDCD` |
+| `resources/app.asar` | `BB47EAB1C91367BF4FD3129AE25DC74BF9188963D0560AC0CFFCC9F4A1C971E0` |
+
+- **First artifact carrying all three service-worker fixes** — the network-first shell, the production-only registration gate, and the install that survives a failed precache. It also carries the shutdown-crash and scanner-stall fixes.
+- Contents were checked by opening the archive, not inferred from the build: the shell's asset references resolve inside it, the service worker is `deqr-mobile-shell-v2` and network-first, and the main process still carries `isRendererAlive` and `disposeAll`.
+- Supersedes, in order: `6DA0D07B…` (2026-08-15, lacks the worker fixes), `16976EE1…` and `135A15FC…` (2026-08-14, both ship the shutdown crash), and `80D42022…B66A` (2026-08-10, predates the merge entirely).
+- Re-check at any time with `npm run release:verify`, which compares the files against the manifest and warns when HEAD has moved past them. `npm run release:list` shows what was built when.
+- **Never build a release with `npm run package`**: it passes `--dir` and refreshes only `release/win-unpacked/`, leaving the portable `.exe` at whatever it already was. That is how a stale portable shipped twice, once still carrying a crash that had already been fixed. `npm run release` only ever calls `dist`.
+
 ## Packaged Acceptance Results (2026-08-10)
 
 - Artifacts: portable `deqr 0.1.0.exe` SHA-256 `80D4202254FD83B74814BD3076ACEB0BAA9A66911A9AFAD78DBCEFBC8142B66A`; NSIS `9C10F2ED…1DAA`; `app.asar` `F0ADAC53…9280`.
@@ -155,7 +174,7 @@
 0. **Do this before anything else on the phone.** Confirm the iPhone actually picks up the rebuilt shell (BUG-005). Start the desktop receiver, open the installed PWA, and check that the topbar reads **Receiver online** and that scan details list "QR codes read" and "Other transfer" — those exist only in the new build. If the old shell persists, clear the site data or reinstall the PWA, then repeat. Every result below is meaningless until this passes, because a stale shell silently reproduces the original report.
 1. Perform trusted physical Safari/installed-PWA acceptance: CA/firewall reachability, camera permission/denial/recovery, standalone launch, offline shell, export/Files, VoiceOver and the appearance/accessibility matrix, and corrected desktop-to-iPhone byte/hash reconstruction. Fixtures with recorded SHA-256 digests are staged at `.local-run/acceptance-fixtures/`. During the scan, read "QR codes read" in scan details: if it stays at 0 while scans climb, the failure is optical or scanner-side, not protocol — the protocol path is now covered by a compositional test.
 2. Run the 6/8/10/12/15 FPS sweep on the device and set the sender rate from measured useful unique payload throughput. The current 10 FPS default remains an unvalidated hypothesis and was deliberately left unchanged.
-3. Repeat the 5 KiB / 100 KiB / 1 MiB subset using the packaged portable artifact to close the last `DESKTOP-SEC-050` criterion. **Use the 2026-08-14 rebuild, not the 2026-08-10 one.** `release/deqr 0.1.0.exe` is now SHA-256 `6DA0D07B06C997317E38432A9A9771CD226A88A8C8E296868D378A09D3B86921`, rebuilt at HEAD `3e6b518` on 2026-08-15 00:54. **This is the first artifact containing the shutdown-crash and scanner-stall fixes; every earlier build ships the crash**, including `16976EE1…` (2026-08-14), `135A15FC…` (2026-08-14, 02:59) and `80D42022…B66A` (2026-08-10). Note that `npm run package` uses `--dir` and refreshes only `release/win-unpacked/`, so the portable goes stale silently unless `npm run dist` is run — that is exactly how a week-old portable came to be sitting beside a current unpacked build.
+3. Repeat the 5 KiB / 100 KiB / 1 MiB subset using the packaged portable artifact to close the last `DESKTOP-SEC-050` criterion. Use the artifact in **Current Release Artifacts** above — portable SHA-256 `20B912B9…CF1B`, built from `a14411b`. Confirm it with `npm run release:verify` before starting; every earlier build is missing at least one shipped fix, and the three oldest still carry the shutdown crash.
 4. Before any real PWA deployment, resolve `WEB-IOS-SEC-003`'s response-header boundary — `frame-ancestors` is ignored when CSP is delivered via `<meta>`.
 5. Do not revive MAUI work.
 6. Confirm the merged desktop window chrome on an unlocked desktop. `frame: false` from `407a4b3` auto-merged onto the `ios2-shell` renderer, which previously ran with Electron's native frame on top of its own custom title bar. Verify title-bar dragging, minimize/maximize/close, and that exactly one header renders.

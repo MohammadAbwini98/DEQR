@@ -185,15 +185,14 @@ One hazard was caught: `release/deqr 0.1.0.exe` was a week stale while
 `release/win-unpacked/` was current, because **`npm run package` uses `--dir` and
 never rebuilds the portable**. Rebuilt with `npm run dist`.
 
-| Artifact | SHA-256 |
-| --- | --- |
-| `release/deqr 0.1.0.exe` (portable) | `6DA0D07B06C997317E38432A9A9771CD226A88A8C8E296868D378A09D3B86921` |
-| `release/deqr Setup 0.1.0.exe` (NSIS) | `6BA4DA589E82D0002B973E4B8E7389E0F450AD04C21C707A6E68EFF3B5BD1805` |
-| `resources/app.asar` | `115871EB3035FFD6E5F2E04C9F684B42A813B020642720852869EF51159017BA` |
+That set (`6DA0D07B…`, HEAD `3e6b518`) has itself been superseded. **Current
+hashes live in `CURRENT-STATE.md` under "Current Release Artifacts"** — one
+authoritative copy rather than two that drift. Build and check with
+`npm run release` and `npm run release:verify`, which refuse a dirty tree, stop a
+running instance first, only ever call `dist`, and open the archive afterwards.
 
-Rebuilt at HEAD `3e6b518` on 2026-08-15 00:54. **This is the first artifact set
-containing the shutdown-crash and scanner-stall fixes**; every earlier build,
-including `16976EE1…`, ships the crash. Verified rather than assumed: the
+The evidence below was gathered against `6DA0D07B…` and still describes the
+fixes, which the current artifact also carries. Verified rather than assumed: the
 portable was run, a real transfer started to 36 frames, and closing it exited in
 2.4 s with no error dialog, no `Object has been destroyed`, and no orphaned
 process. Both fixes were also confirmed inside `app.asar` by extraction —
