@@ -15,6 +15,20 @@ describe('PWA shell', () => {
     expect(worker).toContain('PRECACHE_URLS'); expect(worker).not.toContain('http://'); expect(worker).not.toContain('https://');
   });
 
+  it('registers the service worker only in a production build', async () => {
+    const main = await readFile(path.join(root, 'src/main.tsx'), 'utf8');
+    const launcher = await readFile(path.join(root, '..', 'scripts/run-local.ps1'), 'utf8');
+
+    // The development server and the packaged receiver share origin :5174, so a
+    // worker registered while developing keeps serving its cached development
+    // shell once the packaged host owns the port. That shell requests
+    // /src/main.tsx and /@vite/*, which the packaged host cannot serve, and the
+    // page renders blank with 503s for files that never existed there.
+    expect(launcher, 'the launcher still shares the receiver port').toMatch(/PwaPort\s*=\s*5174/);
+    expect(main).toMatch(/import\.meta\.env\.PROD\s*&&\s*'serviceWorker' in navigator/);
+    expect(main).not.toMatch(/^\s*if \('serviceWorker' in navigator\)/m);
+  });
+
   it('uses a local-only CSP and a Vite cache distinct from the Electron renderer', async () => {
     const html = await readFile(path.join(root, 'index.html'), 'utf8');
     const pwaVite = await readFile(path.join(root, 'vite.config.ts'), 'utf8');

@@ -29,6 +29,12 @@ list over anything below it.
    `-PwaPort 5174`, the exact port the desktop receiver now wants, so the launcher
    and **Start receiver** fight over it. The launcher is for desktop-browser PWA
    development. For a phone, use the packaged app, which serves the receiver itself.
+   This sharing has already caused one production failure — see
+   `WEB-IOS-SHELL-016`: a service worker registered by the dev server kept
+   replaying its **development** shell after the packaged host took the port,
+   giving a blank page with 503s for `/src/main.tsx` and `/@vite/*`. Registration
+   is now gated to production builds, but the two still share the origin, so
+   **separating that port remains the real fix and is still open.**
 4. **Committing and pushing is no longer withheld.** The old closing line predates
    the current arrangement; work has been committed and pushed through `f0e43db`.
 
