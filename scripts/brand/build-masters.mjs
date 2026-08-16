@@ -16,7 +16,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SOURCE = path.join(ROOT, 'branding', 'source');
@@ -487,18 +487,31 @@ ${emblemBody(PRIMARY.emblem, 'deqr-lockup', INK)}
   }
 }
 
-const sheetFlag = process.argv.indexOf('--sheet');
-const flag = process.argv.indexOf('--variants');
-if (sheetFlag !== -1) {
-  await writeVariantImage(process.argv[sheetFlag + 1]);
-  console.log('variant image written');
-} else if (flag !== -1) {
-  writeVariantSheet(process.argv[flag + 1]);
-  console.log('variant sheet written');
-} else {
-  console.log('DEQR vector masters\n');
-  writeMasters();
-  console.log('\nNow run: node scripts/brand/generate-brand-assets.mjs');
+/**
+ * Only act when run as a command.
+ *
+ * The geometry helpers below are exported so studies can reuse them, and
+ * without this guard merely importing one of them would run `writeMasters()`
+ * and overwrite `branding/source/*.svg` underneath the caller — silently
+ * discarding an in-progress edit to a master.
+ */
+const invokedDirectly = process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  const sheetFlag = process.argv.indexOf('--sheet');
+  const flag = process.argv.indexOf('--variants');
+  if (sheetFlag !== -1) {
+    await writeVariantImage(process.argv[sheetFlag + 1]);
+    console.log('variant image written');
+  } else if (flag !== -1) {
+    writeVariantSheet(process.argv[flag + 1]);
+    console.log('variant sheet written');
+  } else {
+    console.log('DEQR vector masters\n');
+    writeMasters();
+    console.log('\nNow run: node scripts/brand/generate-brand-assets.mjs');
+  }
 }
 
 export { arm, arms, armSegment, curveThrough, diamond, PRIMARY, SMALL, MICRO, VARIANTS };
