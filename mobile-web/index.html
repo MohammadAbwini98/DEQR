@@ -19,6 +19,10 @@
     <link rel="alternate icon" href="./favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon-180.png" />
     <title>DEQR Receive</title>
+    <!-- Unhashed, and loaded before the application module on purpose. The
+         failure it recovers from is that module not loading, so it cannot live
+         inside it, and `script-src 'self'` rules out an inline script. -->
+    <script src="./boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -6,7 +6,8 @@ import vm from 'node:vm';
 const ORIGIN = 'https://100.95.40.3:5174';
 const SW_PATH = path.resolve(__dirname, '..', 'public/sw.js');
 
-interface FakeResponse { ok: boolean; status: number; tag: string; clone(): FakeResponse }
+/** `type` is only set by `Response.error()`, which is why it is optional. */
+interface FakeResponse { ok: boolean; status: number; tag: string; type?: string; clone(): FakeResponse }
 
 function makeResponse(tag: string, ok = true): FakeResponse {
   const response: FakeResponse = { ok, status: ok ? 200 : 503, tag, clone: () => makeResponse(tag, ok) };
@@ -45,17 +46,22 @@ async function loadWorker() {
       addAll: async (urls: string[]) => { for (const url of urls) store.set(keyFor(url), makeResponse('precached:' + url)); },
       put: async (request: unknown, response: FakeResponse) => { store.set(keyFor(request), response); },
       match: async (request: unknown) => store.get(keyFor(request)),
+      delete: async (request: unknown) => store.delete(keyFor(request)),
     };
   };
 
   const skipWaiting = vi.fn();
   const claim = vi.fn();
+  const posted: Array<Record<string, unknown>> = [];
   const context = {
     self: {
       location: { origin: ORIGIN },
       addEventListener: (type: string, handler: (event: unknown) => void) => listeners.set(type, handler),
       skipWaiting,
-      clients: { claim },
+      clients: {
+        claim,
+        matchAll: async () => [{ postMessage: (message: Record<string, unknown>) => posted.push(message) }],
+      },
     },
     caches: {
       open: async (name: string) => cacheApi(name),
@@ -68,7 +74,12 @@ async function loadWorker() {
       if (networkDown) throw new TypeError('Failed to fetch');
       return network.get(url) ?? makeResponse('network:' + url);
     },
-    Response: class { constructor(public body: unknown, public init?: { status?: number }) {} },
+    // `Response.error()` is a real network error, which is what makes the
+    // browser fire `error` on a script element. A plain Response never does.
+    Response: Object.assign(
+      class { constructor(public body: unknown, public init?: { status?: number }) {} },
+      { error: () => ({ ok: false, status: 0, type: 'error', tag: 'network-error' }) },
+    ),
     URL,
     Promise,
     console,
@@ -94,6 +105,7 @@ async function loadWorker() {
     stores,
     network,
     fetched,
+    posted,
     skipWaiting,
     claim,
     setNetworkDown: (down: boolean) => { networkDown = down; },
@@ -145,7 +157,7 @@ describe('receiver service worker strategy', () => {
 
   it('serves the live shell for a navigation instead of a cached one', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v2')!;
+    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
     cache.set(ORIGIN + '/', makeResponse('stale-shell'));
     cache.set(ORIGIN + '/index.html', makeResponse('stale-shell'));
     sw.network.set(ORIGIN + '/', makeResponse('fresh-shell'));
@@ -161,7 +173,7 @@ describe('receiver service worker strategy', () => {
 
   it('still opens from cache when the desktop host is stopped', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v2')!;
+    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
     cache.set(ORIGIN + '/', makeResponse('cached-shell'));
     cache.set(ORIGIN + '/index.html', makeResponse('cached-shell'));
     sw.setNetworkDown(true);
@@ -177,7 +189,7 @@ describe('receiver service worker strategy', () => {
 
   it('never answers the health probe, so reachability cannot be remembered', async () => {
     await sw.install();
-    sw.stores.get('deqr-mobile-shell-v2')!.set(ORIGIN + '/health', makeResponse('cached-health'));
+    sw.stores.get('deqr-mobile-shell-v3')!.set(ORIGIN + '/health', makeResponse('cached-health'));
 
     const response = await sw.request(makeRequest('/health'));
 
@@ -187,7 +199,7 @@ describe('receiver service worker strategy', () => {
 
   it('serves hashed build assets from cache without a network round trip', async () => {
     await sw.install();
-    sw.stores.get('deqr-mobile-shell-v2')!.set(ORIGIN + '/assets/index-abc123.js', makeResponse('cached-asset'));
+    sw.stores.get('deqr-mobile-shell-v3')!.set(ORIGIN + '/assets/index-abc123.js', makeResponse('cached-asset'));
 
     // Count only what this request causes; install precaches over the network.
     const before = sw.fetched.length;
@@ -199,7 +211,7 @@ describe('receiver service worker strategy', () => {
 
   it('refreshes unhashed assets in the background while answering from cache', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v2')!;
+    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
     cache.set(ORIGIN + '/icons/deqr.svg', makeResponse('cached-icon'));
     sw.network.set(ORIGIN + '/icons/deqr.svg', makeResponse('fresh-icon'));
 
@@ -215,5 +227,63 @@ describe('receiver service worker strategy', () => {
     expect(await sw.request(makeRequest('/', { method: 'POST' }))).toBeUndefined();
     const foreign = { url: 'https://example.invalid/probe', method: 'GET', mode: 'no-cors', destination: '' };
     expect(await sw.request(foreign)).toBeUndefined();
+  });
+});
+
+describe('stale-shell recovery', () => {
+  let sw: Awaited<ReturnType<typeof loadWorker>>;
+
+  beforeEach(async () => {
+    sw = await loadWorker();
+    await sw.install();
+    await sw.activate();
+  });
+
+  it('never synthesises a response body for a build asset that failed to load', async () => {
+    // The permanent-white-page defect. A fake `503 Offline` body is still a
+    // response, so the browser MIME-checks it, rejects it, and fires nothing
+    // the page can observe. A real network error is what fires `error` on the
+    // script element, which is the only signal `boot.js` can recover from.
+    sw.setNetworkDown(true);
+
+    const response = await sw.request(makeRequest('/assets/index-abc123.js'));
+
+    expect(response?.type).toBe('error');
+    expect(response?.tag).not.toBe('Offline');
+  });
+
+  it('reports a stale shell and evicts it when a hashed asset is gone from the host', async () => {
+    // A cached document naming a build the host no longer has. Left alone this
+    // reloads into the same cached shell forever.
+    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
+    cache.set(ORIGIN + '/', makeResponse('stale-shell'));
+    cache.set(ORIGIN + '/index.html', makeResponse('stale-shell'));
+    sw.network.set(ORIGIN + '/assets/index-OLDHASH.js', makeResponse('missing', false));
+
+    await sw.request(makeRequest('/assets/index-OLDHASH.js'));
+
+    expect(sw.posted).toContainEqual(
+      expect.objectContaining({ type: 'DEQR_SHELL_STALE', asset: ORIGIN + '/assets/index-OLDHASH.js' }),
+    );
+    // Evicting the shell is what stops the next navigation landing right back
+    // on the same dead build.
+    expect(cache.get(ORIGIN + '/')).toBeUndefined();
+    expect(cache.get(ORIGIN + '/index.html')).toBeUndefined();
+  });
+
+  it('does not cry stale for a missing non-build file', async () => {
+    // A 404 on an icon or an unknown route says nothing about the build, and
+    // treating it as a version mismatch would reload the app for nothing.
+    sw.network.set(ORIGIN + '/icons/absent.png', makeResponse('missing', false));
+
+    await sw.request(makeRequest('/icons/absent.png'));
+
+    expect(sw.posted).toHaveLength(0);
+  });
+
+  it('precaches the recovery script, which must survive offline', async () => {
+    // `boot.js` is the only code that can recover a shell whose hashed module
+    // is gone, so it cannot itself be hashed or network-dependent.
+    expect(sw.fetched.some((url) => url.endsWith('/boot.js'))).toBe(true);
   });
 });

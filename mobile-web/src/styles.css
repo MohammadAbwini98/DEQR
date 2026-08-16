@@ -611,3 +611,29 @@ dd {
   button:active,
   button:hover:not(:active) { transform: none; }
 }
+
+/* Boot and render failure surfaces. Rendered by `public/boot.js` before any
+   application CSS class exists, and by the React error boundary after it, so
+   the rules stay self-contained and depend on no layout above them. */
+.boot-failure {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.boot-failure h1 { font-size: 1.35rem; line-height: 1.2; margin: 0; }
+.boot-failure p { margin: 0; color: var(--supporting-text, #55637a); }
+.boot-failure-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.boot-failure button { min-height: 2.75rem; padding: 0 1.1rem; }
+.boot-failure-detail {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.5rem;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
