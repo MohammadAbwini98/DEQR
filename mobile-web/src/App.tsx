@@ -298,7 +298,7 @@ export default function App() {
     <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{liveStatus}</p>
     <header className="topbar">
       <div className="brand">
-        <img className="brand-mark" src="./icons/deqr.svg" alt="" />
+        <img className="brand-mark" src="./icons/deqr-chip.svg" alt="" />
         <div><strong>DEQR</strong><small>Optical Transfer</small></div>
       </div>
       {/* Replaces a static "Receiver" chip that only ever restated the app's
@@ -322,7 +322,7 @@ export default function App() {
     {hostStatus !== 'ONLINE' && <p className="host-detail" aria-hidden="true">{host.detail}</p>}
 
     {screen === 'HOME' && <section className="home-screen" aria-labelledby="home-title">
-      <div className="home-mark card" aria-hidden="true"><img src="./icons/deqr.svg" alt="" /></div>
+      <div className="home-mark card" aria-hidden="true"><img src="./icons/deqr-chip.svg" alt="" /></div>
       <p className="eyebrow">OFFLINE OPTICAL RECEIVER</p>
       <h1 id="home-title" ref={homeHeading} tabIndex={-1}>Receive a file with your camera.</h1>
       <p className="home-copy">Scan a DEQR animation from another device. Your file is offered for saving only after its size and SHA-256 hash are verified on this iPhone.</p>

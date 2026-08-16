@@ -91,6 +91,11 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
+    // A packaged build takes its window, taskbar and Alt+Tab icon from the
+    // executable, where electron-builder embeds `win.icon`. Unpackaged there is
+    // no executable resource to read, so point Electron at the same source file
+    // rather than letting a development run show the default Electron icon.
+    ...(app.isPackaged ? {} : { icon: path.join(__dirname, '../../branding/export/desktop/icon.ico') }),
     // The renderer provides the complete accessible title bar and window
     // controls. Keeping Electron's native frame would render a second header.
     frame: false,

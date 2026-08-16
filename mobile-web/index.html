@@ -10,7 +10,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="DEQR Receive" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" href="./icons/deqr.svg" type="image/svg+xml" />
+    <!-- A tab favicon is drawn at 16-32px, so this is the micro treatment, not
+         the full mark. The full mark is the manifest's vector entry. -->
+    <link rel="icon" href="./icons/deqr-chip.svg" type="image/svg+xml" />
+    <!-- Browsers without SVG favicon support fall back to this rather than to
+         a request for /favicon.ico that the packaged host would answer with a
+         404 on every load. -->
+    <link rel="alternate icon" href="./favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon-180.png" />
     <title>DEQR Receive</title>
   </head>

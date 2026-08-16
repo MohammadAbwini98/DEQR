@@ -12,3 +12,9 @@ mobile-web/.certs/
 .local-run/
 mobile/.vs/
 *.csproj.user
+
+# Generated brand sheet. Every raster is embedded as base64, so it is ~1.3 MB
+# and it regenerates wholesale whenever the geometry changes — tracking it would
+# add that much to history on every brand tweak. Rebuild it on demand:
+#   npm run brand:generate
+branding/deqr-logo-preview.html

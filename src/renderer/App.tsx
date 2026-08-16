@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileSelectionResult, TransferState } from '../shared/types';
-import deqrLogo from '../../mobile-web/public/icons/deqr.svg';
+// The titlebar draws this at 23px, where the full mark's arms and focal blades
+// fall under two pixels and speckle. `deqr-chip.svg` is the same mark in its
+// micro treatment, built for this size band.
+import deqrLogo from '../../mobile-web/public/icons/deqr-chip.svg';
 import Dashboard from './components/Dashboard';
 import QRCanvas from './components/QRCanvas';
 import LoopbackView from './components/LoopbackView';

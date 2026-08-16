@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DEQR concept 1 — optical vortex">
+  <title>Concept 1 — Optical Vortex</title>
+  <desc>Four tapered pinwheel bars form a square aperture ring; a second ring twisted 45 degrees sits inside it; a bright square module marks the centre. Rotation is carried by the taper and the gap placement, depth by scale and brightness.</desc>
+  <defs>
+    <linearGradient id="c1-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#131C29"/>
+      <stop offset="1" stop-color="#080D14"/>
+    </linearGradient>
+    <linearGradient id="c1-outer" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5AB2FF"/>
+      <stop offset="1" stop-color="#0A63DC"/>
+    </linearGradient>
+    <linearGradient id="c1-inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9BDCFF"/>
+      <stop offset="1" stop-color="#3D93F5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#c1-tile)"/>
+
+  <g transform="translate(256 256)">
+    <g id="ring-outer" fill="url(#c1-outer)">
+      <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z"/>
+      <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(90)"/>
+      <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(180)"/>
+      <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(270)"/>
+    </g>
+
+    <g id="ring-inner" fill="url(#c1-inner)" transform="rotate(45)">
+      <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z"/>
+      <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(90)"/>
+      <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(180)"/>
+      <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(270)"/>
+    </g>
+
+    <rect id="core" x="-28" y="-28" width="56" height="56" rx="8" fill="#F4FBFF"/>
+  </g>
+</svg>

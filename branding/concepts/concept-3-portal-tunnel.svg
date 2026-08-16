@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DEQR concept 3 — portal tunnel">
+  <title>Concept 3 — DEQR Portal</title>
+  <desc>Four concentric square frames receding toward an off-centre vanishing point, joined by straight corridor edges. One-point perspective reads as a controlled tunnel between two isolated devices.</desc>
+  <defs>
+    <linearGradient id="c3-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#131C29"/>
+      <stop offset="1" stop-color="#080D14"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#c3-tile)"/>
+
+  <g transform="translate(256 256)" fill="none" stroke-linejoin="miter">
+    <!-- Corridor walls run from the mouth of the tunnel to the vanishing point,
+         which sits up and left of centre so the tunnel reads as entered, not
+         faced head-on. -->
+    <g stroke="#1F4E85" stroke-width="10">
+      <path d="M -160 -160 L -34 -46"/>
+      <path d="M 160 -160 L 46 -46"/>
+      <path d="M 160 160 L 46 34"/>
+      <path d="M -160 160 L -34 34"/>
+    </g>
+    <rect x="-160" y="-160" width="320" height="320" stroke="#0A63DC" stroke-width="26"/>
+    <rect x="-118" y="-122" width="240" height="240" stroke="#2C86EE" stroke-width="20"/>
+    <rect x="-78" y="-86" width="164" height="164" stroke="#57A8FA" stroke-width="15"/>
+    <rect x="-40" y="-48" width="88" height="88" stroke="#9BDCFF" stroke-width="11"/>
+  </g>
+  <rect x="238" y="230" width="36" height="36" rx="6" fill="#F4FBFF"/>
+</svg>

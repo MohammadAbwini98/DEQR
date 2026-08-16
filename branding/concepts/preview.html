@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DEQR — Concept Exploration</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; padding: 22px; background: #f5f5f7; color: #1d1d1f; }
+  h1 { font-size: 1.2rem; margin-bottom: 16px; letter-spacing: -0.02em; }
+  h2 { font-size: .85rem; margin: 24px 0 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card { border: 1px solid rgba(0,0,0,.12); border-radius: 14px; overflow: hidden; background: #fff; }
+  .card .art { display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .card .art svg { width: 168px; height: 168px; display: block; }
+  .label { padding: 8px 12px; font-size: .75rem; font-weight: 600; border-top: 1px solid rgba(0,0,0,.1); }
+  .sizerow { display: flex; gap: 12px; align-items: flex-end; padding: 12px 14px; background: #fff; border: 1px solid rgba(0,0,0,.12); border-radius: 12px; margin-bottom: 10px; }
+  .sizerow .name { font-size: .72rem; font-weight: 600; width: 120px; }
+  .sizerow figure { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .sizerow figcaption { font-size: .6rem; opacity: .5; }
+  svg.s64 { width: 64px; height: 64px; } svg.s48 { width: 48px; height: 48px; }
+  svg.s32 { width: 32px; height: 32px; } svg.s24 { width: 24px; height: 24px; }
+  svg.s16 { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+
+  <symbol id="c1" viewBox="0 0 512 512">
+    <linearGradient id="c1-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131C29"/><stop offset="1" stop-color="#080D14"/></linearGradient>
+    <linearGradient id="c1-outer" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5AB2FF"/><stop offset="1" stop-color="#0A63DC"/></linearGradient>
+    <linearGradient id="c1-inner" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9BDCFF"/><stop offset="1" stop-color="#3D93F5"/></linearGradient>
+    <rect width="512" height="512" rx="112" fill="url(#c1-tile)"/>
+    <g transform="translate(256 256)">
+      <g fill="url(#c1-outer)">
+        <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z"/>
+        <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(90)"/>
+        <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(180)"/>
+        <path d="M -160 -160 L 88 -160 L 88 -136 L -160 -118 Z" transform="rotate(270)"/>
+      </g>
+      <g fill="url(#c1-inner)" transform="rotate(45)">
+        <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z"/>
+        <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(90)"/>
+        <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(180)"/>
+        <path d="M -72 -72 L 24 -72 L 24 -56 L -72 -46 Z" transform="rotate(270)"/>
+      </g>
+      <rect x="-28" y="-28" width="56" height="56" rx="8" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <symbol id="c2" viewBox="0 0 512 512">
+    <linearGradient id="c2-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131C29"/><stop offset="1" stop-color="#080D14"/></linearGradient>
+    <linearGradient id="c2-blade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#63B8FF"/><stop offset="1" stop-color="#0A5FD0"/></linearGradient>
+    <g id="c2-blade-unit">
+      <path d="M -152 -88 L 24 -166 L 76 -76 L -46 -50 Z" fill="url(#c2-blade)"/>
+      <rect x="-140" y="-118" width="22" height="22" fill="#0B1119"/>
+      <rect x="-104" y="-134" width="22" height="22" fill="#0B1119"/>
+    </g>
+    <rect width="512" height="512" rx="112" fill="url(#c2-tile)"/>
+    <g transform="translate(256 256)">
+      <use href="#c2-blade-unit"/>
+      <use href="#c2-blade-unit" transform="rotate(60)"/>
+      <use href="#c2-blade-unit" transform="rotate(120)"/>
+      <use href="#c2-blade-unit" transform="rotate(180)"/>
+      <use href="#c2-blade-unit" transform="rotate(240)"/>
+      <use href="#c2-blade-unit" transform="rotate(300)"/>
+      <circle r="34" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <symbol id="c3" viewBox="0 0 512 512">
+    <linearGradient id="c3-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131C29"/><stop offset="1" stop-color="#080D14"/></linearGradient>
+    <rect width="512" height="512" rx="112" fill="url(#c3-tile)"/>
+    <g transform="translate(256 256)" fill="none">
+      <g stroke="#1F4E85" stroke-width="10">
+        <path d="M -160 -160 L -34 -46"/><path d="M 160 -160 L 46 -46"/>
+        <path d="M 160 160 L 46 34"/><path d="M -160 160 L -34 34"/>
+      </g>
+      <rect x="-160" y="-160" width="320" height="320" stroke="#0A63DC" stroke-width="26"/>
+      <rect x="-118" y="-122" width="240" height="240" stroke="#2C86EE" stroke-width="20"/>
+      <rect x="-78" y="-86" width="164" height="164" stroke="#57A8FA" stroke-width="15"/>
+      <rect x="-40" y="-48" width="88" height="88" stroke="#9BDCFF" stroke-width="11"/>
+    </g>
+    <rect x="238" y="230" width="36" height="36" rx="6" fill="#F4FBFF"/>
+  </symbol>
+
+  <symbol id="c4" viewBox="0 0 512 512">
+    <linearGradient id="c4-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131C29"/><stop offset="1" stop-color="#080D14"/></linearGradient>
+    <rect width="512" height="512" rx="112" fill="url(#c4-tile)"/>
+    <g transform="translate(256 256)">
+      <g fill="#5AB2FF">
+        <rect x="-24" y="-186" width="48" height="48" rx="6" opacity="0.42"/>
+        <rect x="-22" y="-170" width="44" height="44" rx="6" opacity="0.50" transform="rotate(46)"/>
+        <rect x="-20" y="-155" width="40" height="40" rx="5" opacity="0.58" transform="rotate(92)"/>
+        <rect x="-18" y="-141" width="36" height="36" rx="5" opacity="0.66" transform="rotate(138)"/>
+        <rect x="-17" y="-128" width="34" height="34" rx="5" opacity="0.74" transform="rotate(184)"/>
+        <rect x="-15" y="-117" width="30" height="30" rx="4" opacity="0.82" transform="rotate(230)"/>
+        <rect x="-14" y="-106" width="28" height="28" rx="4" opacity="0.90" transform="rotate(276)"/>
+        <rect x="-12" y="-97" width="24" height="24" rx="4" transform="rotate(322)"/>
+      </g>
+      <g fill="#9BDCFF">
+        <rect x="-11" y="-84" width="22" height="22" rx="3" transform="rotate(20)"/>
+        <rect x="-10" y="-74" width="20" height="20" rx="3" transform="rotate(78)"/>
+        <rect x="-9" y="-65" width="18" height="18" rx="3" transform="rotate(136)"/>
+        <rect x="-8" y="-57" width="16" height="16" rx="3" transform="rotate(194)"/>
+      </g>
+      <rect x="-42" y="-42" width="84" height="84" rx="12" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+</defs></svg>
+
+  <h1>DEQR — Concept Exploration (4 directions)</h1>
+  <div class="grid">
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#c1"/></svg></div><div class="label">1 — Optical Vortex</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#c2"/></svg></div><div class="label">2 — Data Aperture</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#c3"/></svg></div><div class="label">3 — DEQR Portal</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#c4"/></svg></div><div class="label">4 — Reconstruction</div></div>
+  </div>
+
+  <h2>Small-size behaviour</h2>
+  <div class="sizerow"><span class="name">1 Optical Vortex</span>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#c1"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#c1"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#c1"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#c1"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#c1"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">2 Data Aperture</span>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#c2"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#c2"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#c2"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#c2"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#c2"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">3 DEQR Portal</span>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#c3"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#c3"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#c3"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#c3"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#c3"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">4 Reconstruction</span>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#c4"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#c4"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#c4"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#c4"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#c4"/></svg><figcaption>16</figcaption></figure>
+  </div>
+</body>
+</html>

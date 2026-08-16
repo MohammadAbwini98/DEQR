@@ -15,6 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "echo 'lint not configured'",
+    "brand:masters": "node scripts/brand/build-masters.mjs",
+    "brand:generate": "node scripts/brand/generate-brand-assets.mjs",
     "doctor": "node scripts/ai/doctor.js",
     "drift-check": "node scripts/ai/check-adapter-drift.js",
     "vectors:generate": "npx --yes tsx@4.20.3 scripts/protocol/generate-vectors.ts",
@@ -51,9 +53,11 @@
       "dist/**/*"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "branding/export/desktop"
     },
     "win": {
+      "icon": "branding/export/desktop/icon.ico",
       "target": [
         "nsis",
         "portable"

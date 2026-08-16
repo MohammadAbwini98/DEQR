@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = path.resolve(__dirname, '..');
+
+const exists = async (relative: string) =>
+  access(path.join(root, 'public', relative)).then(() => true, () => false);
+
 describe('PWA shell', () => {
   it('declares standalone installability and an offline shell worker', async () => {
     const manifest = JSON.parse(await readFile(path.join(root, 'public/manifest.webmanifest'), 'utf8')); const worker = await readFile(path.join(root, 'public/sw.js'), 'utf8');
@@ -13,6 +17,29 @@ describe('PWA shell', () => {
       expect.objectContaining({ src: './icons/deqr.svg', sizes: 'any', type: 'image/svg+xml' }),
     ]));
     expect(worker).toContain('PRECACHE_URLS'); expect(worker).not.toContain('http://'); expect(worker).not.toContain('https://');
+  });
+
+  it('ships every icon it advertises, and keeps the maskable one dedicated', async () => {
+    const manifest = JSON.parse(await readFile(path.join(root, 'public/manifest.webmanifest'), 'utf8'));
+    const html = await readFile(path.join(root, 'index.html'), 'utf8');
+
+    // A manifest naming an icon that is not in `public/` installs a broken
+    // Home Screen icon, and nothing else in the suite would notice.
+    const declared = manifest.icons.map((icon: { src: string }) => icon.src.replace(/^\.\//, ''));
+    const referenced = [...html.matchAll(/(?:href)="\.\/([^"]+\.(?:png|ico|svg))"/g)].map((match) => match[1]);
+    for (const asset of new Set([...declared, ...referenced])) {
+      expect(await exists(asset), `${asset} is referenced but not present`).toBe(true);
+    }
+    expect(referenced).toContain('icons/apple-touch-icon-180.png');
+    expect(referenced).toContain('favicon.ico');
+
+    // `purpose: "any maskable"` on a single file is the common mistake: the
+    // platform mask crops it to a circle, so artwork drawn to fill the square
+    // loses its edges. The maskable entry has to be its own inset artwork.
+    const maskable = manifest.icons.filter((icon: { purpose?: string }) => icon.purpose?.split(' ').includes('maskable'));
+    expect(maskable).toHaveLength(1);
+    expect(maskable[0].purpose).toBe('maskable');
+    expect(maskable[0].src).toBe('./icons/deqr-maskable-512.png');
   });
 
   it('registers the service worker only in a production build', async () => {

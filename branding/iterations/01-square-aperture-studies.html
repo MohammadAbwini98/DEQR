@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DEQR — Refinement Iterations</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; padding: 18px; background: #f5f5f7; color: #1d1d1f; }
+  h1 { font-size: 1.05rem; margin-bottom: 12px; letter-spacing: -0.02em; }
+  h2 { font-size: .75rem; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .05em; opacity: .55; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .card { border: 1px solid rgba(0,0,0,.12); border-radius: 12px; overflow: hidden; background: #fff; }
+  .card .art { display: flex; align-items: center; justify-content: center; padding: 10px; }
+  .card .art svg { width: 132px; height: 132px; display: block; }
+  .label { padding: 6px 9px; font-size: .68rem; font-weight: 600; border-top: 1px solid rgba(0,0,0,.1); }
+  .sizerow { display: flex; gap: 11px; align-items: flex-end; padding: 8px 12px; background: #fff; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; margin-bottom: 7px; }
+  .sizerow .name { font-size: .68rem; font-weight: 600; width: 46px; }
+  .sizerow figure { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .sizerow figcaption { font-size: .55rem; opacity: .5; }
+  .s96{width:96px;height:96px} .s64{width:64px;height:64px} .s48{width:48px;height:48px}
+  .s32{width:32px;height:32px} .s24{width:24px;height:24px} .s16{width:16px;height:16px}
+  .mono { display: flex; gap: 16px; padding: 12px; border-radius: 10px; align-items: center; }
+  .mono.light { background: #fff; border: 1px solid rgba(0,0,0,.12); }
+  .mono.dark  { background: #101114; border: 1px solid rgba(255,255,255,.14); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#131C29"/><stop offset="1" stop-color="#080D14"/></linearGradient>
+  <linearGradient id="outer" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5AB2FF"/><stop offset="1" stop-color="#0A63DC"/></linearGradient>
+  <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A6E1FF"/><stop offset="1" stop-color="#3D93F5"/></linearGradient>
+  <radialGradient id="focal" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#7CC4FF" stop-opacity="0.26"/><stop offset="1" stop-color="#7CC4FF" stop-opacity="0"/>
+  </radialGradient>
+
+  <!-- Shared: uniform-width pinwheel square ring, w=44, gap=30, outer corner r=16 -->
+  <g id="pinwheel">
+    <path d="M -160 -144 A 16 16 0 0 1 -144 -160 L 86 -160 L 86 -116 L -160 -116 Z"/>
+    <path d="M -160 -144 A 16 16 0 0 1 -144 -160 L 86 -160 L 86 -116 L -160 -116 Z" transform="rotate(90)"/>
+    <path d="M -160 -144 A 16 16 0 0 1 -144 -160 L 86 -160 L 86 -116 L -160 -116 Z" transform="rotate(180)"/>
+    <path d="M -160 -144 A 16 16 0 0 1 -144 -160 L 86 -160 L 86 -116 L -160 -116 Z" transform="rotate(270)"/>
+  </g>
+
+  <!-- vA — pinwheel ring + square core. Minimal: two elements, one language. -->
+  <symbol id="vA" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="url(#tile)"/><rect x="126" y="126" width="260" height="260" fill="url(#focal)"/>
+    <g transform="translate(256 256)">
+      <g fill="url(#outer)"><use href="#pinwheel"/></g>
+      <rect x="-44" y="-44" width="88" height="88" rx="14" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <!-- vB — pinwheel ring + solid diamond + square core. Twist expressed 0 -> 45 -> 0. -->
+  <symbol id="vB" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="url(#tile)"/><rect x="126" y="126" width="260" height="260" fill="url(#focal)"/>
+    <g transform="translate(256 256)">
+      <g fill="url(#outer)"><use href="#pinwheel"/></g>
+      <path fill="url(#inner)" d="M 0 -96 L 96 0 L 0 96 L -96 0 Z"/>
+      <rect x="-34" y="-34" width="68" height="68" rx="10" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <!-- vC — pinwheel ring + solid diamond only. Maximum restraint. -->
+  <symbol id="vC" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="url(#tile)"/><rect x="126" y="126" width="260" height="260" fill="url(#focal)"/>
+    <g transform="translate(256 256)">
+      <g fill="url(#outer)"><use href="#pinwheel"/></g>
+      <path fill="url(#inner)" d="M 0 -104 L 104 0 L 0 104 L -104 0 Z"/>
+    </g>
+  </symbol>
+
+  <!-- vD — no gaps at all: concentric square ring + diamond ring + core. Pure twist, no pinwheel. -->
+  <symbol id="vD" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="url(#tile)"/><rect x="126" y="126" width="260" height="260" fill="url(#focal)"/>
+    <g transform="translate(256 256)">
+      <path fill="url(#outer)" fill-rule="evenodd" d="M -160 -160 L 160 -160 L 160 160 L -160 160 Z M -118 -118 L -118 118 L 118 118 L 118 -118 Z"/>
+      <path fill="url(#inner)" fill-rule="evenodd" d="M 0 -100 L 100 0 L 0 100 L -100 0 Z M 0 -66 L -66 0 L 0 66 L 66 0 Z"/>
+      <rect x="-28" y="-28" width="56" height="56" rx="8" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <!-- vE — pinwheel ring + diamond ring + core (iteration 2 with the taper removed). -->
+  <symbol id="vE" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="url(#tile)"/><rect x="126" y="126" width="260" height="260" fill="url(#focal)"/>
+    <g transform="translate(256 256)">
+      <g fill="url(#outer)"><use href="#pinwheel"/></g>
+      <path fill="url(#inner)" fill-rule="evenodd" d="M 0 -100 L 100 0 L 0 100 L -100 0 Z M 0 -64 L -64 0 L 0 64 L 64 0 Z"/>
+      <rect x="-28" y="-28" width="56" height="56" rx="8" fill="#F4FBFF"/>
+    </g>
+  </symbol>
+
+  <symbol id="vBmono" viewBox="0 0 512 512">
+    <g transform="translate(256 256)" fill="currentColor">
+      <use href="#pinwheel"/>
+      <path d="M 0 -96 L 96 0 L 0 96 L -96 0 Z"/>
+    </g>
+    <g transform="translate(256 256)"><rect x="-34" y="-34" width="68" height="68" rx="10" fill="#fff" style="mix-blend-mode:normal" opacity="0"/></g>
+  </symbol>
+  <symbol id="vBmonoCut" viewBox="0 0 512 512">
+    <g transform="translate(256 256)" fill="currentColor">
+      <use href="#pinwheel"/>
+      <path fill-rule="evenodd" d="M 0 -96 L 96 0 L 0 96 L -96 0 Z M -34 -34 L 34 -34 L 34 34 L -34 34 Z"/>
+    </g>
+  </symbol>
+</defs></svg>
+
+  <h1>DEQR — structural variants (taper removed, element count reduced)</h1>
+  <div class="grid">
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#vA"/></svg></div><div class="label">vA · ring + core</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#vB"/></svg></div><div class="label">vB · ring + diamond + core</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#vC"/></svg></div><div class="label">vC · ring + diamond</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#vD"/></svg></div><div class="label">vD · no gaps, pure twist</div></div>
+    <div class="card"><div class="art"><svg viewBox="0 0 512 512"><use href="#vE"/></svg></div><div class="label">vE · ring + diamond ring + core</div></div>
+  </div>
+
+  <h2>Small-size behaviour</h2>
+  <div class="sizerow"><span class="name">vA</span>
+    <figure><svg class="s96" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>96</figcaption></figure>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#vA"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">vB</span>
+    <figure><svg class="s96" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>96</figcaption></figure>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#vB"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">vC</span>
+    <figure><svg class="s96" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>96</figcaption></figure>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#vC"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">vD</span>
+    <figure><svg class="s96" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>96</figcaption></figure>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#vD"/></svg><figcaption>16</figcaption></figure>
+  </div>
+  <div class="sizerow"><span class="name">vE</span>
+    <figure><svg class="s96" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>96</figcaption></figure>
+    <figure><svg class="s64" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>64</figcaption></figure>
+    <figure><svg class="s48" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>48</figcaption></figure>
+    <figure><svg class="s32" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>32</figcaption></figure>
+    <figure><svg class="s24" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>24</figcaption></figure>
+    <figure><svg class="s16" viewBox="0 0 512 512"><use href="#vE"/></svg><figcaption>16</figcaption></figure>
+  </div>
+
+  <h2>vB monochrome silhouette (core as knockout)</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="mono light">
+      <svg class="s96" viewBox="0 0 512 512" style="color:#0B1119"><use href="#vBmonoCut"/></svg>
+      <svg class="s48" viewBox="0 0 512 512" style="color:#0B1119"><use href="#vBmonoCut"/></svg>
+      <svg class="s32" viewBox="0 0 512 512" style="color:#0B1119"><use href="#vBmonoCut"/></svg>
+      <svg class="s24" viewBox="0 0 512 512" style="color:#0B1119"><use href="#vBmonoCut"/></svg>
+      <svg class="s16" viewBox="0 0 512 512" style="color:#0B1119"><use href="#vBmonoCut"/></svg>
+    </div>
+    <div class="mono dark">
+      <svg class="s96" viewBox="0 0 512 512" style="color:#F5F5F7"><use href="#vBmonoCut"/></svg>
+      <svg class="s48" viewBox="0 0 512 512" style="color:#F5F5F7"><use href="#vBmonoCut"/></svg>
+      <svg class="s32" viewBox="0 0 512 512" style="color:#F5F5F7"><use href="#vBmonoCut"/></svg>
+      <svg class="s24" viewBox="0 0 512 512" style="color:#F5F5F7"><use href="#vBmonoCut"/></svg>
+      <svg class="s16" viewBox="0 0 512 512" style="color:#F5F5F7"><use href="#vBmonoCut"/></svg>
+    </div>
+  </div>
+</body>
+</html>

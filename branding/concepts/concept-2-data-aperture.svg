@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DEQR concept 2 — data aperture">
+  <title>Concept 2 — Data Aperture</title>
+  <desc>A six-blade mechanical iris. Straight blade edges close onto a hexagonal opening; each blade carries two square module notches so the shutter reads as digital rather than photographic.</desc>
+  <defs>
+    <linearGradient id="c2-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#131C29"/>
+      <stop offset="1" stop-color="#080D14"/>
+    </linearGradient>
+    <linearGradient id="c2-blade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#63B8FF"/>
+      <stop offset="1" stop-color="#0A5FD0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#c2-tile)"/>
+
+  <g transform="translate(256 256)">
+    <!-- One blade, repeated six times at 60 degrees. The blade spans an outer
+         chord and stops short of centre, so the six inner edges leave a
+         hexagonal aperture. -->
+    <g fill="url(#c2-blade)">
+      <g id="c2-blade-unit">
+        <path d="M -152 -88 L 24 -166 L 76 -76 L -46 -50 Z"/>
+        <rect x="-140" y="-118" width="22" height="22" fill="#0B1119"/>
+        <rect x="-104" y="-134" width="22" height="22" fill="#0B1119"/>
+      </g>
+      <use href="#c2-blade-unit" transform="rotate(60)"/>
+      <use href="#c2-blade-unit" transform="rotate(120)"/>
+      <use href="#c2-blade-unit" transform="rotate(180)"/>
+      <use href="#c2-blade-unit" transform="rotate(240)"/>
+      <use href="#c2-blade-unit" transform="rotate(300)"/>
+    </g>
+    <circle r="34" fill="#F4FBFF"/>
+  </g>
+</svg>
