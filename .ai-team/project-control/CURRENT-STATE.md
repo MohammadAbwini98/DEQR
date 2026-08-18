@@ -1,7 +1,7 @@
 # DEQR Current Project State
 
 **Current Phase**: Phase 1 — Milestone M1 (Stage 4: Optical Integration) + Milestone M2 Mobile Receiver
-**Last Updated**: 2026-08-17
+**Last Updated**: 2026-08-18
 **Status**: IN_PROGRESS — packaged Electron gate conditionally verified with artifact evidence; physical iPhone gate fully unexecuted (no device). Release verdict remains **NOT ACCEPTED**.
 
 > **PRIMARY ACTIVE WORKSTREAM: WEB-IOS (Mobile Web/PWA Receiver)**
@@ -130,24 +130,24 @@
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
-## Current Release Artifacts (2026-08-16)
+## Current Release Artifacts (2026-08-18)
 
 **Authoritative record of what is currently built.** `release/` is gitignored, so its
 `RELEASE-MANIFEST.json` does not survive this machine; these hashes are the durable copy.
 
-- Built from `95cd5bb` on `main` at 2026-08-16 15:37:30 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
+- Built from `3358ac0` on `main` at 2026-08-18 20:28:07 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `release/deqr 0.1.0.exe` (portable) | `46743F496D4E849C6CAD734AFD1B700BFCAFF03475EC58F28FF446C7AD4D17A5` |
-| `release/deqr Setup 0.1.0.exe` (NSIS) | `BF9BA738FA1969F909A4EEBF94FD555B55EC7DF738619F5C178BEA9758276789` |
-| `resources/app.asar` | `4C96F6FD60679F862D03A0CF58145F530AA3E8D8AEB32639D2E3F9A93E2B6E9E` |
+| `release/deqr 0.1.0.exe` (portable) | `3F092ADFC575455D4E80B686F91EE08235DE0D4F58D80FD2376B166D40A9B285` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | `E3CFA78D0D558EC5C96444E2D5C569B33DDB9042A6654411F13A9211E63DABCA` |
+| `resources/app.asar` | `AF7C467DA1CB9DFC7EAB79E7DF432C89917E3694919C3FF080A642477D66CC30` |
 
 - **First artifact carrying an application icon at all** (BRAND-001). Every earlier build shipped the default Electron icon, because electron-builder had no `win.icon`. Confirmed by extracting the icon resources from both the portable and NSIS executables: one icon group each, 16/24/32/48/64/128/256.
 - It also carries everything the previous record did: the three service-worker fixes — the network-first shell, the production-only registration gate, and the install that survives a failed precache — plus the shutdown-crash and scanner-stall fixes.
 - **Why the previous record was replaced rather than kept.** The `a14411b` set (portable `20B912B9…CF1B`, NSIS `566AC6A3…1FDC`, asar `BB47EAB1…C971E0`) no longer exists on disk. Packaging runs during BRAND-001 icon verification overwrote all three, and `release:verify` reported all three drifted from the manifest. They could not be restored, so a clean recorded build was made from the current `main` instead. Nothing was lost that the new set does not also contain — it is a strict superset of the same commit history — but the old hashes are now unreachable and any evidence citing them describes files that no longer exist.
 - **Process note for the same mistake.** `npx electron-builder` invoked directly, in any form, writes into `release/` and silently breaks the manifest. Only `npm run release` records what it built. Verify with `npm run release:verify` before and after any ad-hoc packaging.
-- **HEAD has moved past these artifacts.** They were built from `95cd5bb`; `main` is now at `618dcb3`, which carries the WEB-IOS-SHELL-017 receiver fix. The recorded set therefore still ships the pre-fix service worker and no `boot.js`, and `npm run release:verify` will warn accordingly. Rebuild before any device testing of the blank-page symptom — testing the current artifact would exercise the defect, not the fix.
+- **First artifact carrying the WEB-IOS-SHELL-017 receiver fix.** Confirmed inside `app.asar` by extraction rather than inferred from the build: `dist/pwa/boot.js` is present (5,557 bytes, recovery flag intact), `index.html` references `./boot.js`, and `sw.js` is `deqr-mobile-shell-v3` precaching `boot.js`, returning `Response.error()` and posting `DEQR_SHELL_STALE`. The one remaining `503 Offline` is in `documentStrategy`, which is correct: a navigation with no network and no cached shell has no honest answer but an error. A device test of the blank-page symptom is now meaningful against this artifact and was not against any earlier one.
 - Contents were checked by opening the archive, not inferred from the build: the shell's asset references resolve inside it, the service worker is `deqr-mobile-shell-v2` and network-first, and the main process still carries `isRendererAlive` and `disposeAll`.
 - Supersedes, in order: `6DA0D07B…` (2026-08-15, lacks the worker fixes), `16976EE1…` and `135A15FC…` (2026-08-14, both ship the shutdown crash), and `80D42022…B66A` (2026-08-10, predates the merge entirely).
 - Re-check at any time with `npm run release:verify`, which compares the files against the manifest and warns when HEAD has moved past them. `npm run release:list` shows what was built when.
@@ -186,7 +186,7 @@
 0. **Do this before anything else on the phone.** Confirm the iPhone actually picks up the rebuilt shell (BUG-005). Start the desktop receiver, open the installed PWA, and check that the topbar reads **Receiver online** and that scan details list "QR codes read" and "Other transfer" — those exist only in the new build. If the old shell persists, clear the site data or reinstall the PWA, then repeat. Every result below is meaningless until this passes, because a stale shell silently reproduces the original report.
 1. Perform trusted physical Safari/installed-PWA acceptance: CA/firewall reachability, camera permission/denial/recovery, standalone launch, offline shell, export/Files, VoiceOver and the appearance/accessibility matrix, and corrected desktop-to-iPhone byte/hash reconstruction. While the app is on the Home Screen, close the one BRAND-001 gap: confirm the installed icon is the DEQR Vortex and not a screenshot of the page, that it is opaque with no white corner fringe under the iOS mask, and that it is legible beside the other icons on the springboard. Fixtures with recorded SHA-256 digests are staged at `.local-run/acceptance-fixtures/`. During the scan, read "QR codes read" in scan details: if it stays at 0 while scans climb, the failure is optical or scanner-side, not protocol — the protocol path is now covered by a compositional test.
 2. Run the 6/8/10/12/15 FPS sweep on the device and set the sender rate from measured useful unique payload throughput. The current 10 FPS default remains an unvalidated hypothesis and was deliberately left unchanged.
-3. Repeat the 5 KiB / 100 KiB / 1 MiB subset using the packaged portable artifact to close the last `DESKTOP-SEC-050` criterion. Use the artifact in **Current Release Artifacts** above — portable SHA-256 `46743F49…D17A5`, built from `95cd5bb`. Confirm it with `npm run release:verify` before starting; every earlier build is missing at least one shipped fix, the three oldest still carry the shutdown crash, and the `a14411b` set that this step previously named no longer exists on disk.
+3. Repeat the 5 KiB / 100 KiB / 1 MiB subset using the packaged portable artifact to close the last `DESKTOP-SEC-050` criterion. Use the artifact in **Current Release Artifacts** above — portable SHA-256 `3F092ADF…9B285`, built from `3358ac0`. Confirm it with `npm run release:verify` before starting; every earlier build is missing at least one shipped fix, the three oldest still carry the shutdown crash, and the `a14411b` and `95cd5bb` sets this step previously named no longer exist on disk.
 4. Before any real PWA deployment, resolve `WEB-IOS-SEC-003`'s response-header boundary — `frame-ancestors` is ignored when CSP is delivered via `<meta>`.
 5. Do not revive MAUI work.
 6. Confirm the merged desktop window chrome on an unlocked desktop. `frame: false` from `407a4b3` auto-merged onto the `ios2-shell` renderer, which previously ran with Electron's native frame on top of its own custom title bar. Verify title-bar dragging, minimize/maximize/close, and that exactly one header renders.
