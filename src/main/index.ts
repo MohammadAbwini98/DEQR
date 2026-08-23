@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 import * as path from 'path';
 import { registerIpcHandlers } from './ipc-handlers';
+import { globalStreamingSessions } from './streaming-session-registry';
 import { globalSessionManager } from './session-manager';
 import {
   evaluateMediaPermission,
@@ -143,6 +144,9 @@ function createWindow() {
     // The renderer this transfer was feeding is gone; its timers must not
     // outlive it waiting for a window that will never come back.
     globalSessionManager.disposeAll();
+    // Streaming sessions own a file descriptor, so releasing them is not
+    // optional the way stopping a timer is.
+    void globalStreamingSessions.disposeAll();
   });
 
   // A transfer interval is a Node timer, so closing the window does not stop
@@ -151,6 +155,9 @@ function createWindow() {
   // window that owns them.
   mainWindow.on('closed', () => {
     globalSessionManager.disposeAll();
+    // Streaming sessions own a file descriptor, so releasing them is not
+    // optional the way stopping a timer is.
+    void globalStreamingSessions.disposeAll();
   });
 
   if (!app.isPackaged) {
@@ -236,6 +243,9 @@ app.on('before-quit', () => {
   // Quitting can begin before any window closes, so this is not covered by the
   // window handler above.
   globalSessionManager.disposeAll();
+    // Streaming sessions own a file descriptor, so releasing them is not
+    // optional the way stopping a timer is.
+    void globalStreamingSessions.disposeAll();
   // A no-op when the host was never started, and it chains behind an in-flight
   // start so a half-open server cannot outlive the app.
   void pwaHostLifecycle.stop();

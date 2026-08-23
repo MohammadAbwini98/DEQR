@@ -520,6 +520,273 @@ dd {
 .action-dock .primary,
 .action-dock .primary ~ button { grid-column: 1 / -1; }
 
+
+/* --------------------------------------------- Phase 09: large transfers */
+
+/*
+ * The receiver knew all of this and showed none of it.
+ *
+ * Every surface below draws a fact that was already crossing the worker port:
+ * the two sizes a compressed transfer has, what the storage preflight decided,
+ * how many segments were adopted from a checkpoint, the resume code, and a
+ * verification that runs in two passes. They are styled quietly and stacked in
+ * one column on purpose - this screen is looked at while a phone is being held
+ * steady in front of another screen, and anything competing with the camera
+ * panel for attention is a cost paid in decode rate.
+ */
+
+/*
+ * No transition on the progress fills, here or anywhere on this screen.
+ *
+ * The desktop bar interpolates because it is fed by a 500 ms poll. This one
+ * advances on every accepted segment, so it already reads as continuous - and
+ * a compositor animation running on a page that is decoding QR frames is
+ * exactly the decorative motion that competes with camera processing.
+ */
+
+.storage-preflight {
+  margin: 0;
+  color: var(--supporting-text);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.storage-preflight strong { color: #17212f; }
+
+/* --- the transfer, once its manifest has arrived --- */
+
+.transfer-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.transfer-file {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid #d7e0ec;
+  border-radius: 15px;
+  background: #f7fafd;
+}
+
+.transfer-file-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--interactive-blue);
+  color: #ffffff;
+  font-size: .9rem;
+}
+
+.transfer-file > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.transfer-file strong {
+  overflow: hidden;
+  font-size: .95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-file small,
+.transfer-note {
+  color: var(--supporting-text);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+.transfer-note { margin: 0; }
+
+/* --- the storage decision --- */
+
+.storage-summary {
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 12px 15px;
+  border: 1px solid #d3dde9;
+  border-radius: 15px;
+  background: #f2f6fb;
+}
+
+.storage-summary strong { font-size: .88rem; }
+.storage-summary small { color: var(--supporting-text); font-size: .75rem; line-height: 1.45; }
+
+/* Not enough room. The one storage state a person can act on, so it is the one
+   that gets a colour - and it borrows the palette the host chip already proved
+   readable in both themes rather than inventing a second amber. */
+.storage-summary--short {
+  border-color: #e0b7a2;
+  background: #fdf6f0;
+}
+
+.storage-summary--short strong { color: #8a4a1e; }
+.storage-summary--short small { color: #8a4a1e; }
+
+/* --- segment progress --- */
+
+.segment-line,
+.resume-line,
+.checkpoint-note {
+  margin: 8px 0 0;
+  color: var(--supporting-text);
+  font-size: .8rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkpoint-note {
+  padding: 10px 13px;
+  border-left: 3px solid #d3dde9;
+  border-radius: 0 10px 10px 0;
+  background: #f2f6fb;
+}
+
+/* --- what to do next about a failure --- */
+
+.fault-action {
+  margin: 13px 0 0;
+  padding: 12px 15px;
+  border: 1px solid #d3dde9;
+  border-radius: 15px;
+  background: #f2f6fb;
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+/*
+ * The remedy is on the other device.
+ *
+ * The case this exists for is a receiver that cannot decompress what a sender
+ * chose to compress. The optical link is one-way, so nothing can tell the
+ * desktop; this sentence is the only path back, and it is labelled so it is not
+ * read as something to try on the phone.
+ */
+.fault-action--sender {
+  border-color: #b7cdea;
+  background: #eef4fc;
+  color: #0b4f9e;
+}
+
+.fault-action-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+/* --- verification, on its own panel --- */
+
+.verify-panel {
+  display: grid;
+  gap: 10px;
+  padding: 22px 20px;
+  text-align: center;
+  justify-items: center;
+}
+
+.verify-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef4fc;
+  color: #0b4f9e;
+  font-size: 1.1rem;
+}
+
+.verify-panel strong { font-size: 1.05rem; }
+
+.verify-panel p {
+  margin: 0;
+  color: var(--supporting-text);
+  font-size: .84rem;
+  line-height: 1.5;
+}
+
+.verify-step {
+  font-size: .74rem !important;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.verify-panel .progress { width: 100%; }
+
+.verify-bytes { font-variant-numeric: tabular-nums; }
+
+/* --- an interrupted transfer's kept data --- */
+
+.resume-card {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid #b7cdea;
+  border-radius: 17px;
+  background: #eef4fc;
+}
+
+.resume-card-title {
+  margin: 0;
+  color: #0b4f9e;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.resume-card-body {
+  margin: 0;
+  color: #0b4f9e;
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+.resume-card-body strong { color: #0b4f9e; }
+
+/*
+ * The code, sized to be read off a phone and typed on a desktop.
+ *
+ * It wraps rather than scrolling: forty-seven characters with separators do not
+ * fit a 390px viewport on one line, and a horizontally scrolling code is one a
+ * person transcribes half of.
+ */
+.resume-token,
+.monospace {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.resume-token {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid #b7cdea;
+  border-radius: 11px;
+  background: #ffffff;
+  color: #0b4f9e;
+  font-size: .92rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  text-align: center;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.resume-discard { justify-self: start; }
+
 @media (min-width: 520px) {
   .app-shell { padding-right: calc(28px + env(safe-area-inset-right)); padding-left: calc(28px + env(safe-area-inset-left)); }
   .action-dock { padding-right: calc(28px + env(safe-area-inset-right)); padding-left: calc(28px + env(safe-area-inset-left)); }
@@ -580,12 +847,39 @@ dd {
   dt { color: #91a3b7; }
   dd { color: #d9e3ee; }
   .action-dock { border-color: #2c3c4d; background: rgba(13, 20, 29, .93); }
+
+  /* Phase 09 surfaces. Every foreground/background pair here is one the
+     accessibility contract already measures at 4.5:1 or better, reused rather
+     than re-derived, so a new panel cannot quietly ship an unreadable one. */
+  .storage-preflight strong { color: #edf3fa; }
+  .transfer-file { border-color: #2c3c4d; background: #111d29; }
+  .transfer-file small,
+  .transfer-note { color: #aebdcd; }
+  .storage-summary { border-color: #2c3c4d; background: #111d29; }
+  .storage-summary small { color: #aebdcd; }
+  .storage-summary--short { border-color: #7a5233; background: #2a1d13; }
+  .storage-summary--short strong,
+  .storage-summary--short small { color: #f2bd8c; }
+  .checkpoint-note { border-left-color: #38495c; background: #111d29; }
+  .fault-action { border-color: #2c3c4d; background: #111d29; }
+  .fault-action--sender { border-color: #2f5480; background: #152232; color: #9ec9f5; }
+  .verify-mark { background: #152232; color: #9ec9f5; }
+  .resume-card { border-color: #2f5480; background: #152232; }
+  .resume-card-title,
+  .resume-card-body,
+  .resume-card-body strong { color: #9ec9f5; }
+  .resume-token { border-color: #2f5480; background: #0d141d; color: #9ec9f5; }
 }
 
 @media (prefers-contrast: more) {
   .card,
   .trust-note,
   .verified-file,
+  .transfer-file,
+  .storage-summary,
+  .fault-action,
+  .resume-card,
+  .resume-token,
   button { border-width: 2px; }
   .scan-guide { border-width: 3px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .48); }
   .camera-indicator { background: #000000; }

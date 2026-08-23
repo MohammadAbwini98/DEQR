@@ -56,6 +56,30 @@ describe('PWA shell', () => {
     expect(main).not.toMatch(/^\s*if \('serviceWorker' in navigator\)/m);
   });
 
+  it('re-offers the shell to whichever worker ends up in control', async () => {
+    const main = await readFile(path.join(root, 'src/main.tsx'), 'utf8');
+
+    // An upgrade swaps the controller after this document's assets have already
+    // been fetched and cached by the outgoing worker — whose cache the incoming
+    // worker's `activate` then deletes. A single post at registration time goes
+    // to the worker that is about to lose its cache, so the new one is left
+    // serving a shell whose `/assets/index-HASH.js` is in no cache at all: the
+    // permanent white page, reached by an ordinary update.
+    expect(main, 'the precache list must be re-offered when control changes')
+      .toMatch(/addEventListener\('controllerchange'/);
+    expect(main, 'the list must go to the controlling worker, not the one active at registration')
+      .toMatch(/navigator\.serviceWorker\.controller/);
+
+    // The receive worker is constructed from JavaScript, so it is in no
+    // `<script>` or `<link>` and a document-only list never names it. An
+    // offline receiver that cannot start its decoder is not an offline
+    // receiver.
+    expect(main, 'the observed request graph is what catches the worker chunk')
+      .toMatch(/performance\.getEntriesByType\('resource'\)/);
+    expect(main, 'assets fetched after mount need a later pass than `ready`')
+      .toMatch(/addEventListener\('load'/);
+  });
+
   it('uses a local-only CSP and a Vite cache distinct from the Electron renderer', async () => {
     const html = await readFile(path.join(root, 'index.html'), 'utf8');
     const pwaVite = await readFile(path.join(root, 'vite.config.ts'), 'utf8');

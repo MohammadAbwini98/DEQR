@@ -27,7 +27,7 @@ function xorChecksum(bytes: Uint8Array): number { return bytes.reduce((value, by
 /** Compact duplicate marker. The container SHA-256 remains the integrity authority. */
 function frameFingerprint(bytes: Uint8Array): number { let value = 0x811c9dc5; for (const byte of bytes) { value ^= byte; value = Math.imul(value, 0x01000193); } return value >>> 0; }
 function safeText(bytes: Uint8Array, name: string): string { try { return decoder.decode(bytes); } catch { return fail('INVALID_METADATA', `${name} is not valid UTF-8`); } }
-function isBlockedReceiverExtension(filename: string): boolean { return BLOCKED_RECEIVER_EXTENSIONS.has(filename.slice(filename.lastIndexOf('.')).toLowerCase()); }
+export function isBlockedReceiverExtension(filename: string): boolean { return BLOCKED_RECEIVER_EXTENSIONS.has(filename.slice(filename.lastIndexOf('.')).toLowerCase()); }
 
 export function parseFrame(raw: Uint8Array): ParseResult<DeqrFrame> {
   try {

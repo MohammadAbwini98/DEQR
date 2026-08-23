@@ -14,7 +14,11 @@
  *   - hashed build assets -> cache first; their URL changes when they change
  *   - everything else   -> cache first with a background refresh
  */
-const CACHE = 'deqr-mobile-shell-v3';
+// Bumped whenever what the cache must *contain* changes, not only when the
+// strategy does. v3's populator only ever reached the worker that was active
+// when registration resolved, so a cache written by it can be missing the
+// build assets the shell names. A new name is how a device stops reusing one.
+const CACHE = 'deqr-mobile-shell-v4';
 // `boot.js` is unhashed and must survive offline: it is the only code that can
 // recover a shell whose hashed module is gone.
 const CORE = ['./', './index.html', './boot.js', './manifest.webmanifest', './icons/deqr.svg'];
@@ -47,11 +51,24 @@ self.addEventListener('activate', (event) => {
     .then(() => self.clients.claim()));
 });
 
+/**
+ * Same origin, and not the health probe.
+ *
+ * The page assembles its precache list partly from `performance`, which records
+ * every request the document made — the probe included. `fetch` skips the probe
+ * so reachability is measured rather than remembered, and a `put` here would
+ * quietly reintroduce the remembered copy this worker exists to avoid.
+ */
+function isCacheable(url) {
+  const parsed = new URL(url, self.location.origin);
+  return parsed.origin === self.location.origin && parsed.pathname !== HEALTH_PATH;
+}
+
 self.addEventListener('message', (event) => {
   if (event.data?.type !== 'PRECACHE_URLS' || !Array.isArray(event.data.urls)) return;
   // Per entry, like `install`: one unreachable URL must not reject the batch
   // and surface as an unhandled rejection inside `waitUntil`.
-  event.waitUntil(caches.open(CACHE).then((cache) => Promise.all(event.data.urls.filter((url) => typeof url === 'string' && new URL(url, self.location.origin).origin === self.location.origin).map(async (url) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => Promise.all(event.data.urls.filter((url) => typeof url === 'string' && isCacheable(url)).map(async (url) => {
     try {
       const response = await fetch(url, { cache: 'no-cache' });
       if (response.ok) await cache.put(url, response.clone());

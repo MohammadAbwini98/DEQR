@@ -1,0 +1,79 @@
+{
+  "mode": "faults",
+  "generatedAt": "2026-08-23T13:05:36.971Z",
+  "node": "v24.18.1",
+  "platform": "win32-x64",
+  "wallSeconds": 1.1001356999999998,
+  "results": [],
+  "notes": [
+    {
+      "tag": "faults",
+      "fields": {
+        "label": "fault-insufficient-storage",
+        "expected": "INSUFFICIENT_STORAGE",
+        "observedFault": "INSUFFICIENT_STORAGE",
+        "faultRaised": true,
+        "matchesExpected": true,
+        "completed": true,
+        "claimedDigest": false,
+        "storagePressure": true,
+        "storageKind": "none",
+        "bytesHeldMib": 0,
+        "ok": true
+      }
+    },
+    {
+      "tag": "faults",
+      "fields": {
+        "label": "fault-quota-caught-by-pre-sizing",
+        "expected": "INSUFFICIENT_STORAGE",
+        "observedFault": "INSUFFICIENT_STORAGE",
+        "faultRaised": true,
+        "matchesExpected": true,
+        "completed": true,
+        "claimedDigest": false,
+        "storagePressure": true,
+        "storageKind": "none",
+        "bytesHeldMib": 0,
+        "ok": true
+      }
+    },
+    {
+      "tag": "faults",
+      "fields": {
+        "label": "fault-device-fills-up-mid-transfer",
+        "expected": "STORAGE_FULL",
+        "observedFault": "STORAGE_FULL",
+        "faultRaised": true,
+        "matchesExpected": true,
+        "completed": true,
+        "claimedDigest": false,
+        "storagePressure": true,
+        "storageKind": "opfs",
+        "bytesHeldMib": 1.3400888442993164,
+        "ok": true
+      }
+    },
+    {
+      "tag": "faults",
+      "fields": {
+        "label": "fault-foreign-session",
+        "accepted": 2496,
+        "foreign": 505,
+        "rejected": 0,
+        "fault": "-",
+        "ok": true
+      }
+    },
+    {
+      "tag": "faults",
+      "fields": {
+        "label": "fault-cancel-mid-transfer",
+        "committedMib": 2.6796875,
+        "cancelMs": 0.8269000000000233,
+        "bytesLeftOnDevice": 0,
+        "ok": true
+      }
+    }
+  ]
+}

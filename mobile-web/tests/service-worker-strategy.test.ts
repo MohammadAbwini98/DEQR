@@ -6,6 +6,15 @@ import vm from 'node:vm';
 const ORIGIN = 'https://100.95.40.3:5174';
 const SW_PATH = path.resolve(__dirname, '..', 'public/sw.js');
 
+/**
+ * Read out of the worker rather than restated here.
+ *
+ * The name is deliberately bumped whenever the cache's required *contents*
+ * change, so a test that pinned the old one would keep passing against a cache
+ * the shipping worker no longer writes to.
+ */
+const CACHE_NAME = (await readFile(SW_PATH, 'utf8')).match(/const CACHE = '([^']+)'/)![1];
+
 /** `type` is only set by `Response.error()`, which is why it is optional. */
 interface FakeResponse { ok: boolean; status: number; tag: string; type?: string; clone(): FakeResponse }
 
@@ -47,6 +56,7 @@ async function loadWorker() {
       put: async (request: unknown, response: FakeResponse) => { store.set(keyFor(request), response); },
       match: async (request: unknown) => store.get(keyFor(request)),
       delete: async (request: unknown) => store.delete(keyFor(request)),
+      keys: async () => [...store.keys()].map((url) => ({ url })),
     };
   };
 
@@ -157,7 +167,7 @@ describe('receiver service worker strategy', () => {
 
   it('serves the live shell for a navigation instead of a cached one', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
+    const cache = sw.stores.get(CACHE_NAME)!;
     cache.set(ORIGIN + '/', makeResponse('stale-shell'));
     cache.set(ORIGIN + '/index.html', makeResponse('stale-shell'));
     sw.network.set(ORIGIN + '/', makeResponse('fresh-shell'));
@@ -173,7 +183,7 @@ describe('receiver service worker strategy', () => {
 
   it('still opens from cache when the desktop host is stopped', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
+    const cache = sw.stores.get(CACHE_NAME)!;
     cache.set(ORIGIN + '/', makeResponse('cached-shell'));
     cache.set(ORIGIN + '/index.html', makeResponse('cached-shell'));
     sw.setNetworkDown(true);
@@ -189,7 +199,7 @@ describe('receiver service worker strategy', () => {
 
   it('never answers the health probe, so reachability cannot be remembered', async () => {
     await sw.install();
-    sw.stores.get('deqr-mobile-shell-v3')!.set(ORIGIN + '/health', makeResponse('cached-health'));
+    sw.stores.get(CACHE_NAME)!.set(ORIGIN + '/health', makeResponse('cached-health'));
 
     const response = await sw.request(makeRequest('/health'));
 
@@ -199,7 +209,7 @@ describe('receiver service worker strategy', () => {
 
   it('serves hashed build assets from cache without a network round trip', async () => {
     await sw.install();
-    sw.stores.get('deqr-mobile-shell-v3')!.set(ORIGIN + '/assets/index-abc123.js', makeResponse('cached-asset'));
+    sw.stores.get(CACHE_NAME)!.set(ORIGIN + '/assets/index-abc123.js', makeResponse('cached-asset'));
 
     // Count only what this request causes; install precaches over the network.
     const before = sw.fetched.length;
@@ -211,7 +221,7 @@ describe('receiver service worker strategy', () => {
 
   it('refreshes unhashed assets in the background while answering from cache', async () => {
     await sw.install();
-    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
+    const cache = sw.stores.get(CACHE_NAME)!;
     cache.set(ORIGIN + '/icons/deqr.svg', makeResponse('cached-icon'));
     sw.network.set(ORIGIN + '/icons/deqr.svg', makeResponse('fresh-icon'));
 
@@ -255,7 +265,7 @@ describe('stale-shell recovery', () => {
   it('reports a stale shell and evicts it when a hashed asset is gone from the host', async () => {
     // A cached document naming a build the host no longer has. Left alone this
     // reloads into the same cached shell forever.
-    const cache = sw.stores.get('deqr-mobile-shell-v3')!;
+    const cache = sw.stores.get(CACHE_NAME)!;
     cache.set(ORIGIN + '/', makeResponse('stale-shell'));
     cache.set(ORIGIN + '/index.html', makeResponse('stale-shell'));
     sw.network.set(ORIGIN + '/assets/index-OLDHASH.js', makeResponse('missing', false));
@@ -285,5 +295,98 @@ describe('stale-shell recovery', () => {
     // `boot.js` is the only code that can recover a shell whose hashed module
     // is gone, so it cannot itself be hashed or network-dependent.
     expect(sw.fetched.some((url) => url.endsWith('/boot.js'))).toBe(true);
+  });
+});
+
+/**
+ * The release-to-release path, which is the one an installed phone actually
+ * takes and the one no earlier test covered. Every case here is a way the
+ * device can end up holding a shell it cannot open.
+ */
+describe('upgrade migration', () => {
+  let sw: Awaited<ReturnType<typeof loadWorker>>;
+
+  beforeEach(async () => {
+    sw = await loadWorker();
+  });
+
+  it('adopts the page precache list into the cache the new worker will serve from', async () => {
+    // The defect, in order: the outgoing worker serves the navigation and
+    // caches the new document's hashed assets into *its* cache; this worker
+    // installs and its `activate` deletes that cache; the page's one and only
+    // `PRECACHE_URLS` post already went to the outgoing worker. The new cache
+    // is then left holding its `CORE` list alone, so the shell it serves names
+    // an `/assets/index-HASH.js` that exists in no cache — the permanent white
+    // page, reproduced by an ordinary update.
+    //
+    // `main.tsx` closes it by posting again on `controllerchange`. This is the
+    // worker's half: whatever arrives after activation lands in the live cache.
+    sw.stores.set('deqr-mobile-shell-v3', new Map([
+      [ORIGIN + '/assets/index-NEWHASH.js', makeResponse('asset-in-doomed-cache')],
+    ]));
+
+    await sw.install();
+    await sw.activate();
+    expect(sw.cacheNames(), 'the previous release cache must not survive').not.toContain('deqr-mobile-shell-v3');
+
+    await sw.dispatch('message', {
+      data: { type: 'PRECACHE_URLS', urls: [ORIGIN + '/', ORIGIN + '/assets/index-NEWHASH.js'] },
+    });
+
+    const cache = sw.stores.get(CACHE_NAME)!;
+    expect(cache.get(ORIGIN + '/assets/index-NEWHASH.js')).toBeDefined();
+  });
+
+  it('leaves an offline shell with every asset its document names', async () => {
+    // What "offline" has to mean: the document, the recovery script, and the
+    // hashed module and stylesheet the document references. A cache missing any
+    // one of them opens to a blank page rather than to the receiver.
+    const shell = [ORIGIN + '/', ORIGIN + '/assets/index-NEWHASH.js', ORIGIN + '/assets/style-NEWHASH.css'];
+    await sw.install();
+    await sw.activate();
+    await sw.dispatch('message', { data: { type: 'PRECACHE_URLS', urls: shell } });
+
+    sw.setNetworkDown(true);
+    for (const url of [...shell, ORIGIN + '/boot.js']) {
+      const response = await sw.request({ url, method: 'GET', mode: 'no-cors', destination: '' });
+      expect(response?.ok, `${url} is not served offline`).toBe(true);
+    }
+  });
+
+  it('refuses to remember the health probe even when the page offers it', async () => {
+    // The page builds its list partly from `performance`, which records the
+    // probe like any other request. `fetch` skips the probe so reachability is
+    // measured; a `put` here would reintroduce the remembered copy by the back
+    // door and let an offline receiver claim the desktop host is up.
+    await sw.install();
+    await sw.activate();
+
+    await sw.dispatch('message', { data: { type: 'PRECACHE_URLS', urls: [ORIGIN + '/health'] } });
+
+    expect(sw.stores.get(CACHE_NAME)!.get(ORIGIN + '/health')).toBeUndefined();
+  });
+
+  it('evicts every historical DEQR shell cache, not just the immediately previous one', async () => {
+    // A phone can skip releases. Each of these named the app's shell at some
+    // point, and any one of them left behind can answer a navigation with a
+    // build whose assets are long gone.
+    for (const name of ['deqr-mobile-shell-v1', 'deqr-mobile-shell-v2', 'deqr-mobile-shell-v3']) {
+      sw.stores.set(name, new Map([[ORIGIN + '/index.html', makeResponse('stale-shell')]]));
+    }
+
+    await sw.install();
+    await sw.activate();
+
+    expect(sw.cacheNames()).toEqual([CACHE_NAME]);
+  });
+
+  it('ignores a cross-origin URL offered to the precache list', async () => {
+    await sw.install();
+    await sw.activate();
+    const before = sw.fetched.length;
+
+    await sw.dispatch('message', { data: { type: 'PRECACHE_URLS', urls: ['https://example.invalid/tracker.js'] } });
+
+    expect(sw.fetched.length - before).toBe(0);
   });
 });

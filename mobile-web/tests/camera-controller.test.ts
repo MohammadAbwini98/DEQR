@@ -1,16 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/decoder', () => ({
-  RawQrDecoder: class RawQrDecoder {
-    decode(): Promise<{ elapsedMs: number }> {
-      return Promise.resolve({ elapsedMs: 0 });
-    }
-
-    dispose(): void {}
-  },
-}));
-
-import { CameraController } from '../src/camera';
+import { CameraController, type CaptureTarget } from '../src/camera';
 
 describe('CameraController terminal scheduling', () => {
   let scheduled: Array<() => void>;
@@ -36,7 +26,7 @@ describe('CameraController terminal scheduling', () => {
     vi.restoreAllMocks();
   });
 
-  it('stops the stream and prevents an already queued camera callback from decoding', async () => {
+  it('stops the stream and prevents an already queued camera callback from capturing', async () => {
     const stopTrack = vi.fn();
     const getUserMedia = vi.fn().mockResolvedValue({
       getTracks: () => [{ stop: stopTrack }],
@@ -49,8 +39,9 @@ describe('CameraController terminal scheduling', () => {
       play: vi.fn().mockResolvedValue(undefined),
     } as unknown as HTMLVideoElement;
     const canvas = {} as HTMLCanvasElement;
-    const onBytes = vi.fn();
-    const controller = new CameraController(video, canvas, onBytes, vi.fn());
+    const submit = vi.fn().mockReturnValue(true);
+    const target: CaptureTarget = { canAccept: () => true, submit, supportsBitmapTransfer: false };
+    const controller = new CameraController(video, canvas, target, vi.fn());
 
     await expect(controller.start()).resolves.toBe(true);
     expect(setTimeoutMock).toHaveBeenCalledOnce();
@@ -60,7 +51,7 @@ describe('CameraController terminal scheduling', () => {
     expect(clearTimeoutMock).toHaveBeenCalledWith(1);
     scheduled[0]();
 
-    expect(onBytes).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
     expect(setTimeoutMock).toHaveBeenCalledOnce();
     controller.dispose();
   });

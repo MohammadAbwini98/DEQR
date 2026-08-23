@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  formatFileSize,
-  getIpcError,
-  getSaveOutcome,
-  isActiveTransferState,
-} from '../../src/renderer/app-model';
+import { getIpcError, getSaveOutcome } from '../../src/renderer/app-model';
 
 describe('renderer app model', () => {
   it('reports a completed save only after an affirmative IPC result', () => {
@@ -22,24 +17,12 @@ describe('renderer app model', () => {
     expect(outcome.error).toContain('No saved file is being reported');
   });
 
-  it('requires confirmation only for active send and receive states', () => {
-    expect(isActiveTransferState('streaming')).toBe(true);
-    expect(isActiveTransferState('receive-camera')).toBe(true);
-    expect(isActiveTransferState('loopback-receiving')).toBe(true);
-    expect(isActiveTransferState('preparing')).toBe(false);
-    expect(isActiveTransferState('completed')).toBe(false);
-  });
-
-  // Coverage moved here from the orphaned `ui-model` module, whose own version
-  // of this labelled 1024-based values KB/MB. These now sit on the module the
-  // renderer actually imports.
-  it('labels sizes with the binary units its divisor actually produces', () => {
-    expect(formatFileSize(512)).toBe('512 bytes');
-    expect(formatFileSize(1536)).toBe('1.5 KiB');
-    expect(formatFileSize(2 * 1024 * 1024)).toBe('2.00 MiB');
-    expect(formatFileSize(1023)).toBe('1023 bytes');
-    expect(formatFileSize(1024)).toBe('1.0 KiB');
-  });
+  // Which states a cancel is meaningful in moved to `sender-state.ts`, where it
+  // is derived from the one state machine rather than kept in a set beside it,
+  // and the byte formatter moved to `sender-model.ts`, where it formats from
+  // `bigint` rather than stopping at MiB. Both sets of assertions - including
+  // every size boundary this file used to pin - are carried in
+  // `sender-state.test.ts` and `sender-model.test.ts` respectively.
 
   it('extracts an IPC error without mistaking a successful result for one', () => {
     expect(getIpcError({ error: { message: 'File is blocked' } })).toBe('File is blocked');

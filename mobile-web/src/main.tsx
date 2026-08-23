@@ -39,6 +39,48 @@ try {
   throw error;
 }
 
+/**
+ * Everything this document actually loaded from this origin.
+ *
+ * The DOM half — `<script>` and `<link>` — is the shell's declared graph. The
+ * `performance` half is the observed one, and it is not redundant: the receive
+ * worker is constructed from JavaScript rather than referenced by the document,
+ * so it appears in no element and would otherwise enter the cache only because
+ * some earlier session happened to fetch it while the host was reachable. An
+ * offline receiver that cannot start its decoder is not an offline receiver.
+ */
+function shellUrls(): string[] {
+  const fromDocument = [
+    location.href,
+    ...[...document.scripts].map((script) => script.src),
+    ...[...document.querySelectorAll('link[href]')].map((link) => (link as HTMLLinkElement).href),
+  ];
+  const fromNetwork = performance.getEntriesByType('resource').map((entry) => entry.name);
+  return [...new Set([...fromDocument, ...fromNetwork])].filter(
+    (url) => Boolean(url) && url.startsWith(`${location.origin}/`),
+  );
+}
+
+/**
+ * Hands the *controlling* worker the list, rather than the one that was active
+ * when registration resolved.
+ *
+ * On an upgrade those are different workers, and the difference is a broken
+ * offline shell. The sequence: the old worker serves the navigation and caches
+ * the new document's assets into *its* cache; the new worker installs, calls
+ * `skipWaiting`, and its `activate` deletes every older `deqr-mobile-` cache —
+ * including the one those assets just landed in. The new cache is left holding
+ * only its own `CORE` list, so the cached `index.html` names an
+ * `/assets/index-HASH.js` that is in no cache at all. The next offline launch
+ * then reproduces the exact permanent-white-page failure `boot.js` exists for.
+ *
+ * Posting again on `controllerchange` closes it: by then the new worker owns
+ * the cache the document will actually be served from.
+ */
+function precacheShell(worker: ServiceWorker | null | undefined): void {
+  worker?.postMessage({ type: 'PRECACHE_URLS', urls: shellUrls() });
+}
+
 // Production only. The development server shares origin `:5174` with the
 // packaged receiver, so a worker registered while developing goes on serving
 // its cached development shell after the packaged host takes the port over —
@@ -47,11 +89,20 @@ try {
 // ever existed on a Vite server. Offline caching is a shipping requirement, not
 // a development one, so it is registered only where it is needed.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    precacheShell(navigator.serviceWorker.controller);
+  });
+
+  // Assets fetched after the shell mounts — the receive worker chunk above all
+  // — are not in `performance` yet when registration resolves.
+  window.addEventListener('load', () => {
+    precacheShell(navigator.serviceWorker.controller);
+  });
+
   navigator.serviceWorker.register('./sw.js').then(async (registration) => {
     boot?.stage('BOOT_SW_CHECK');
     await navigator.serviceWorker.ready;
-    const urls = [location.href, ...[...document.scripts].map((script) => script.src), ...[...document.querySelectorAll('link[href]')].map((link) => (link as HTMLLinkElement).href)].filter(Boolean);
-    registration.active?.postMessage({ type: 'PRECACHE_URLS', urls });
+    precacheShell(navigator.serviceWorker.controller ?? registration.active);
   }).catch((error: unknown) => {
     // Registration failing costs offline support, not the session. Record it so
     // a later blank-page report can distinguish "no worker" from "bad worker".

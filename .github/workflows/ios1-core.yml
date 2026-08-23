@@ -5,6 +5,7 @@ on:
     paths:
       - 'mobile/**'
       - 'protocol/test-vectors/**'
+      - 'protocol/test-vectors-v2/**'
       - 'scripts/protocol/**'
       - '.github/workflows/ios1-core.yml'
       - 'package.json'
@@ -36,6 +37,12 @@ jobs:
 
       - name: Verify vector reproducibility
         run: git diff --exit-code -- protocol/test-vectors
+
+      - name: Regenerate DEQR v2 vectors
+        run: npm run vectors:v2:generate
+
+      - name: Verify v2 vector reproducibility
+        run: git diff --exit-code -- protocol/test-vectors-v2
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4

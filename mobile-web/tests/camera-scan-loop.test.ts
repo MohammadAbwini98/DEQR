@@ -1,16 +1,6 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/decoder', () => ({
-  RawQrDecoder: class RawQrDecoder {
-    decode(): Promise<{ elapsedMs: number }> {
-      return Promise.resolve({ elapsedMs: 0 });
-    }
-
-    dispose(): void {}
-  },
-}));
-
-import { CameraController } from '../src/camera';
+import { CameraController, activeCameraCount, type CaptureTarget } from '../src/camera';
 
 /**
  * The scan loop has to keep itself alive.
@@ -19,6 +9,11 @@ import { CameraController } from '../src/camera';
  * a loop built on it alone is not a loop: if iOS never starts presenting, or
  * the stream stalls across a lifecycle transition, nothing ever fires again and
  * scanning stops permanently while the preview still reports an active camera.
+ *
+ * Phase 05 moved decoding behind a `CaptureTarget`, so these tests now drive an
+ * always-ready target rather than a mocked decoder. Every property they held
+ * before is still held here; `camera-backpressure.test.ts` covers what happens
+ * when the target is *not* ready.
  */
 describe('CameraController scan loop resilience', () => {
   let timers: Array<{ id: number; fn: () => void; ms: number; cancelled: boolean }>;
@@ -83,15 +78,20 @@ describe('CameraController scan loop resilience', () => {
     return { video, rvfc };
   }
 
+  function readyTarget(): CaptureTarget & { submit: ReturnType<typeof vi.fn> } {
+    const submit = vi.fn().mockReturnValue(true);
+    return { canAccept: () => true, submit, supportsBitmapTransfer: false };
+  }
+
   const start = async (video: HTMLVideoElement) => {
     const stopTrack = vi.fn();
     vi.stubGlobal('navigator', {
       mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) },
     });
-    const onBytes = vi.fn();
-    const controller = new CameraController(video, {} as HTMLCanvasElement, onBytes, vi.fn());
+    const target = readyTarget();
+    const controller = new CameraController(video, {} as HTMLCanvasElement, target, vi.fn());
     await expect(controller.start()).resolves.toBe(true);
-    return { controller, onBytes, stopTrack };
+    return { controller, target, stopTrack };
   };
 
   it('keeps scanning when the video never presents a frame', async () => {
@@ -157,7 +157,7 @@ describe('CameraController scan loop resilience', () => {
 
   it('ignores a stale callback from a previous stream', async () => {
     const { video, rvfc } = videoStub(true);
-    const { controller, onBytes } = await start(video);
+    const { controller, target } = await start(video);
 
     const stale = rvfc[0];
     controller.stop();
@@ -166,9 +166,17 @@ describe('CameraController scan loop resilience', () => {
     // The old generation must not schedule anything or read pixels.
     stale(0);
     expect(timers.length, 'a stale callback re-armed the loop').toBe(0);
-    expect(onBytes).not.toHaveBeenCalled();
+    expect(target.submit).not.toHaveBeenCalled();
 
     controller.dispose();
   });
-});
 
+  it('releases its claim on the single live camera when it stops', async () => {
+    const { video } = videoStub(false);
+    const { controller } = await start(video);
+
+    expect(activeCameraCount()).toBe(1);
+    controller.dispose();
+    expect(activeCameraCount(), 'the module still believed a camera was live').toBe(0);
+  });
+});

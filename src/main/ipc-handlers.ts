@@ -15,9 +15,11 @@ import { FountainDecoder } from '../core/fountain-decoder';
 import { serializeFrame } from '../core/protocol';
 import { deserializeContainer } from '../core/container';
 import { computeSha256 } from '../core/hash';
-import { isBlockedExtension } from '../core/filename-sanitizer';
+import { isBlockedExtension, sanitizeFilename } from '../core/filename-sanitizer';
+import { RECEIVER_POLICY } from '../core/receiver-policy';
 import { getPwaHostStatus, subscribePwaHostStatus } from './pwa-host';
 import { pwaHostLifecycle } from './pwa-host-lifecycle';
+import { globalStreamingSessions } from './streaming-session-registry';
 import { isTrustedIpcSender } from './ipc-sender-policy';
 
 // The browser receiver serially samples full camera frames at roughly 11 Hz
@@ -25,6 +27,37 @@ import { isTrustedIpcSender } from './ipc-sender-policy';
 // measurements establish a safe higher rate.
 const DEFAULT_OPTICAL_TRANSFER_FPS = 10;
 const OPTICAL_TRANSFER_INTERVAL_MS = 1_000 / DEFAULT_OPTICAL_TRANSFER_FPS;
+
+/**
+ * A renderer-supplied session id, or `null` for anything that cannot be one.
+ *
+ * Session ids are minted here and handed out; they are always positive safe
+ * integers. A renderer that sends a string, an object or `NaN` is either a
+ * defect or something that should not be talking to this channel, and either
+ * way the answer is the same as for an id that has expired - which is what the
+ * `null` return lets each handler express in its own terms rather than by
+ * throwing from a place the caller cannot distinguish.
+ */
+function asSessionId(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Loss simulation percentage from a renderer-supplied loopback options object.
+ *
+ * `options` was read as `any` inside a `setInterval` callback until Phase 10,
+ * so `loopback:start` with `null` - or with `lossPercentage: {}` - produced a
+ * throw in a timer, which reaches no caller and surfaces as Electron's "A
+ * JavaScript error occurred in the main process" dialog. Clamped rather than
+ * refused: this is a development aid, and the honest reading of a nonsensical
+ * value is no simulated loss at all.
+ */
+export function readLossPercentage(options: unknown): number {
+  if (typeof options !== 'object' || options === null) return 0;
+  const value = (options as { lossPercentage?: unknown }).lossPercentage;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
 
 /**
  * Registers a handler that runs only for a trusted top-level renderer frame.
@@ -97,12 +130,81 @@ export function registerIpcHandlers() {
     }
   });
 
-  handleTrusted('files:discardSelection', async (event, sessionId: number) => {
+  /**
+   * DEQR v2 streaming sender.
+   *
+   * Pull-based on purpose. There is no main-process timer pushing frames at a
+   * renderer that may not be painting them, which is both real backpressure and
+   * one fewer timer to outlive a window.
+   */
+  handleTrusted('streamTransfer:select', async (event, options?: unknown) => {
+    try {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return null;
+      // Everything in this object came from the renderer, so nothing is read
+      // off it without a type check. The resume code is untrusted text on its
+      // way to a parser that expects forty characters, so it is bounded here
+      // and only forwarded when it is a string at all; the codec itself rejects
+      // anything that is not a well-formed token. The profile id is bounded by
+      // `resolveTransportProfile`, which falls back rather than failing.
+      const request = typeof options === 'object' && options !== null
+        ? options as { resumeToken?: unknown; transportProfileId?: unknown }
+        : {};
+      const token = typeof request.resumeToken === 'string'
+        && request.resumeToken.length > 0
+        && request.resumeToken.length <= RECEIVER_POLICY.maxResumeTokenChars
+        ? request.resumeToken
+        : undefined;
+      const transportProfileId = typeof request.transportProfileId === 'number'
+        ? request.transportProfileId
+        : undefined;
+      return await globalStreamingSessions.selectFile(window, { resumeToken: token, transportProfileId });
+    } catch (e) {
+      return { error: sanitizeError(e) };
+    }
+  });
+
+  handleTrusted('streamTransfer:nextFrame', async (_event, rawSessionId: unknown) => {
+    try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) {
+        throw new DeqrError(ErrorCode.SESSION_NOT_FOUND, 'Session not found or expired');
+      }
+      return await globalStreamingSessions.nextFrame(sessionId);
+    } catch (e) {
+      return { error: sanitizeError(e) };
+    }
+  });
+
+  handleTrusted('streamTransfer:progress', async (_event, rawSessionId: unknown) => {
+    try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) return null;
+      return globalStreamingSessions.progress(sessionId);
+    } catch {
+      // Progress for a session that is gone is not an error worth surfacing.
+      return null;
+    }
+  });
+
+  handleTrusted('streamTransfer:cancel', async (_event, rawSessionId: unknown) => {
+    const sessionId = asSessionId(rawSessionId);
+    if (sessionId === null) return;
+    await globalStreamingSessions.cancel(sessionId);
+  });
+
+  handleTrusted('files:discardSelection', async (event, rawSessionId: unknown) => {
+    const sessionId = asSessionId(rawSessionId);
+    if (sessionId === null) return;
     globalSessionManager.removeSession(sessionId);
   });
 
-  handleTrusted('transfer:start', async (event, sessionId: number) => {
+  handleTrusted('transfer:start', async (event, rawSessionId: unknown) => {
     try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) {
+        throw new DeqrError(ErrorCode.SESSION_NOT_FOUND, 'Session not found or expired');
+      }
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer) {
         throw new DeqrError(ErrorCode.INVALID_TRANSFER_STATE, 'Transfer already running');
@@ -125,8 +227,10 @@ export function registerIpcHandlers() {
     }
   });
 
-  handleTrusted('transfer:pause', async (event, sessionId: number) => {
+  handleTrusted('transfer:pause', async (event, rawSessionId: unknown) => {
     try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) return;
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer) {
         if (session.activeTransfer.intervalId !== null) {
@@ -142,8 +246,10 @@ export function registerIpcHandlers() {
     } catch (e) {}
   });
 
-  handleTrusted('transfer:resume', async (event, sessionId: number) => {
+  handleTrusted('transfer:resume', async (event, rawSessionId: unknown) => {
     try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) return;
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeTransfer && !session.activeTransfer.intervalId) {
         session.activeTransfer.activeSinceMs = performance.now();
@@ -155,21 +261,31 @@ export function registerIpcHandlers() {
     } catch (e) {}
   });
 
-  handleTrusted('transfer:cancel', async (event, sessionId: number) => {
+  handleTrusted('transfer:cancel', async (event, rawSessionId: unknown) => {
+    const sessionId = asSessionId(rawSessionId);
+    if (sessionId === null) return;
     globalSessionManager.removeSession(sessionId);
   });
 
   // Loopback handlers
-  handleTrusted('loopback:start', async (event, sessionId: number, options: any) => {
+  handleTrusted('loopback:start', async (event, rawSessionId: unknown, options: unknown) => {
     try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) {
+        throw new DeqrError(ErrorCode.SESSION_NOT_FOUND, 'Session not found or expired');
+      }
       const session = globalSessionManager.getSession(sessionId);
       if (session.activeLoopback) {
         throw new DeqrError(ErrorCode.INVALID_TRANSFER_STATE, 'Loopback already running');
       }
 
+      // Read once, at the boundary, into a number. The timer below runs for the
+      // life of the loopback and nothing inside it may touch renderer-supplied
+      // structure again: a throw in a timer callback reaches no caller.
+      const lossPercentage = readLossPercentage(options);
       session.encoder = new FountainEncoder(session.payload, V1_FOUNTAIN_BLOCK_SIZE_BYTES, sessionId);
       session.activeLoopback = {
-        intervalId: setInterval(() => loopbackFrame(event.sender, session, options), 1000 / 60), // Target 60fps for loopback
+        intervalId: setInterval(() => loopbackFrame(event.sender, session, lossPercentage), 1000 / 60), // Target 60fps for loopback
         decoder: new FountainDecoder()
       };
     } catch (e) {
@@ -177,10 +293,11 @@ export function registerIpcHandlers() {
     }
   });
 
-  handleTrusted('loopback:cancel', async (event, sessionId: number) => {
+  handleTrusted('loopback:cancel', async (event, rawSessionId: unknown) => {
     // A renderer can emit cancel after a completed transfer removed its session.
     // Cancellation is intentionally idempotent, so this is not an IPC error.
-    const session = globalSessionManager.findSession(sessionId);
+    const sessionId = asSessionId(rawSessionId);
+    const session = sessionId === null ? undefined : globalSessionManager.findSession(sessionId);
     if (!session) return;
     if (session.activeLoopback) {
       clearInterval(session.activeLoopback.intervalId);
@@ -188,7 +305,7 @@ export function registerIpcHandlers() {
     }
   });
 
-  handleTrusted('receive:saveReceivedFile', async (event, containerData: unknown, defaultName: string) => {
+  handleTrusted('receive:saveReceivedFile', async (event, containerData: unknown, defaultName: unknown) => {
     let containerBuffer: Buffer | undefined;
     let containerPayload: Buffer | undefined;
     let expectedHash: Buffer | undefined;
@@ -228,10 +345,20 @@ export function registerIpcHandlers() {
         return false;
       }
 
-      // 3. Prompt user with sanitized filename from container
+      // 3. Prompt user with sanitized filename from container.
+      //
+      // The fallback is renderer-supplied and is sanitized to a bare basename
+      // before it is used. `defaultPath` accepts an absolute path, so an
+      // unsanitized fallback would let the renderer choose which directory the
+      // save dialog opened in and what it was pre-filled with - the user still
+      // confirms, but a dialog pre-aimed at a system directory is not a dialog
+      // anyone reads carefully.
+      const fallbackName = typeof defaultName === 'string' && defaultName.length > 0
+        ? sanitizeFilename(defaultName)
+        : 'received-file';
       const { canceled, filePath } = await dialog.showSaveDialog(window, {
         title: 'Save Received File',
-        defaultPath: container.metadata.filename || defaultName
+        defaultPath: container.metadata.filename || fallbackName
       });
 
       if (canceled || !filePath) return false;
@@ -346,7 +473,11 @@ function generateFrame(webContents: Electron.WebContents, session: SessionState)
   deliverToRenderer(webContents, session, `transfer:frame:${session.id}`, payload, stats);
 }
 
-function loopbackFrame(webContents: Electron.WebContents, session: SessionState, options: any) {
+function loopbackFrame(
+  webContents: Electron.WebContents,
+  session: SessionState,
+  lossPercentage: number,
+) {
   if (!session.encoder || !session.activeLoopback) return;
   if (!isRendererAlive(webContents)) {
     globalSessionManager.removeSession(session.id);
@@ -354,12 +485,13 @@ function loopbackFrame(webContents: Electron.WebContents, session: SessionState,
   }
 
   const frame = session.encoder.nextFrame();
-  
+
   // Track received locally on activeLoopback
   if (session.activeLoopback.receivedFrames === undefined) session.activeLoopback.receivedFrames = 0;
-  
-  // Simulate drops
-  if (Math.random() < (options.lossPercentage || 0) / 100) return;
+
+  // Simulate drops. Already validated and clamped at the IPC boundary; this is
+  // a number by the time it reaches a timer.
+  if (Math.random() < lossPercentage / 100) return;
 
   session.activeLoopback.receivedFrames++;
   const decoder: FountainDecoder = session.activeLoopback.decoder;

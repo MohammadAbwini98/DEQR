@@ -141,7 +141,9 @@ button.danger {
   overflow: auto;
 }
 
-.content--streaming {
+.content--send-transferring,
+.content--send-held,
+.content--send-ready {
   align-items: flex-start;
 }
 
@@ -190,7 +192,7 @@ p {
 }
 
 .dashboard,
-.selection-card,
+.preflight-card,
 .status-card,
 .transfer-view,
 .verification-view,
@@ -227,7 +229,7 @@ p {
 }
 
 .action-card,
-.selection-card,
+.preflight-card,
 .status-card,
 .verification-view,
 .receiver-view,
@@ -407,7 +409,7 @@ p {
   color: var(--accent-danger);
 }
 
-.selection-card,
+.preflight-card,
 .status-card,
 .verification-view,
 .receiver-view {
@@ -487,7 +489,8 @@ dd {
   font-size: 0.8125rem;
 }
 
-.capacity-note {
+.capacity-note,
+.resume-note {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 10px;
@@ -497,7 +500,8 @@ dd {
   background: rgba(0, 113, 227, 0.06);
 }
 
-.capacity-note span {
+.capacity-note span,
+.resume-note span {
   display: grid;
   width: 20px;
   height: 20px;
@@ -509,7 +513,8 @@ dd {
   font-weight: 700;
 }
 
-.capacity-note p {
+.capacity-note p,
+.resume-note p {
   color: var(--text-primary);
   font-size: 0.875rem;
 }
@@ -612,9 +617,19 @@ dd {
 
 .qr-canvas {
   display: block;
-  width: min(100%, 400px);
-  height: auto;
   background: #fff;
+  /*
+   * No width or height here on purpose. The component sets both inline, to the
+   * exact size it drew, so one QR module maps to a whole number of device
+   * pixels. A stylesheet size of `min(100%, 400px)` resamples the canvas to fit
+   * a box, which is the artefact the integer module scale exists to remove -
+   * and it is invisible until a camera has to read the result.
+   *
+   * `max-width` is a safety net for a window narrower than the planned symbol.
+   * It costs the pixel alignment when it engages, which is strictly better than
+   * overflowing the layout, and Phase 09 owns what should happen instead.
+   */
+  max-width: 100%;
   image-rendering: pixelated;
   transition: none;
 }
@@ -787,6 +802,443 @@ dd {
   font-size: 1.5rem;
 }
 
+
+/* ------------------------------------------------ Phase 09: large transfers */
+
+/*
+ * One dominant status, then everything else.
+ *
+ * The v1 transfer screen gave five equally weighted counters the same visual
+ * rank: frames, blocks, target FPS, effective FPS, elapsed. None of them
+ * answered "how far along is my file", and at 4 GiB that is the only question.
+ * The hierarchy below is deliberate - percentage and segment position lead,
+ * bytes and time follow, and the engineering data is behind a disclosure that
+ * a normal transfer never opens.
+ */
+
+.file-card {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.file-card-name {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.file-card-name > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.file-card-name strong {
+  overflow: hidden;
+  font-size: 1.0625rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-card-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.file-card-hash {
+  color: var(--text-secondary);
+}
+
+.size-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.size-grid div {
+  min-width: 0;
+}
+
+.size-grid dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+/* The second half of a two-part fact, and it must not read as loudly as the
+   number it qualifies. */
+.size-delta {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.compression-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.compression-note strong {
+  color: var(--text-primary);
+}
+
+.compression-note--on {
+  border-left: 3px solid var(--accent-success);
+}
+
+.compression-note--off {
+  border-left: 3px solid var(--border-strong);
+}
+
+/* --- transport profile selector --- */
+
+.profile-selector {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.profile-selector legend {
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-hint,
+.profile-caveat {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.profile-caveat {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.profile-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.profile-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+/* The focus ring belongs to the label, because the radio itself is a 13px
+   target in the corner of a card someone is meant to click anywhere on. */
+.profile-option:focus-within {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.profile-option--active {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.profile-option-body {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.profile-option-body strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9375rem;
+}
+
+.profile-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.profile-summary {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.profile-numbers {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+/* --- live transfer --- */
+
+.transfer-primary {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.progress-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.progress-percent {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  /* Tabular figures, so the number does not reflow the line every time a digit
+     changes. A layout that shifts on every poll is the "no layout shifts every
+     frame" rule failing in the least obvious way. */
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-segment,
+.progress-bytes {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border-color);
+}
+
+.progress > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  transform-origin: left center;
+  /*
+   * The bar interpolates; the number does not. A transform transition here is
+   * one composited property on an 8px strip and it makes a 500 ms poll read as
+   * continuous motion rather than as a stutter. It never runs ahead of the
+   * data - it only smooths the path between two measured values, and the
+   * percentage beside it always shows the measurement itself.
+   */
+  transition: transform var(--motion-standard) var(--motion-ease-out);
+}
+
+.progress--wide {
+  height: 10px;
+}
+
+.transfer-headline-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.transfer-headline-metrics div {
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.transfer-headline-metrics dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- engineering diagnostics --- */
+
+.diagnostics {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.diagnostics summary {
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.diagnostics summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0 18px 18px;
+}
+
+.diagnostics-grid div {
+  min-width: 0;
+}
+
+.diagnostics-grid dd {
+  margin: 0;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* --- stream complete --- */
+
+.status-card--stream-complete {
+  border-color: rgba(0, 113, 227, 0.4);
+}
+
+/*
+ * Not a success banner.
+ *
+ * The sender cannot know whether the file arrived, and the screen it replaces
+ * did not say so. This is styled as a standing caveat rather than as a green
+ * confirmation precisely so it does not read as one.
+ */
+.completion-caveat {
+  margin: 0;
+  padding: 14px 16px;
+  border-left: 3px solid var(--accent-warning);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+.completion-caveat strong {
+  color: var(--text-primary);
+}
+
+/* --- resume code entry --- */
+
+.resume-entry {
+  display: flex;
+  width: min(100%, 720px);
+  flex-direction: column;
+  gap: 24px;
+  padding: clamp(24px, 4vw, 42px);
+}
+
+.resume-form {
+  display: grid;
+  gap: 10px;
+}
+
+.resume-form label {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.resume-input {
+  min-height: 52px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  /* Wide tracking, because this is transcribed one character at a time off
+     another device's screen. */
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+
+.resume-input:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.resume-input[aria-invalid='true'] {
+  border-color: var(--accent-danger);
+}
+
+.resume-progress {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Reserved height, so the layout does not jump the moment the fortieth
+ * character is typed. An error that shifts the button out from under a cursor
+ * is worse than the error.
+ */
+.resume-message {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--accent-danger);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.resume-help p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.resume-help strong {
+  color: var(--text-primary);
+}
+
+.action-icon--resume {
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--accent-primary);
+}
+
 @media (hover: hover) and (pointer: fine) {
   button:hover:not(:disabled) {
     background: var(--bg-hover);
@@ -840,6 +1292,24 @@ dd {
     grid-template-columns: 1fr;
   }
 
+  /* Two columns rather than one: these are short paired figures, and stacking
+     four of them turns the file card into a scroll. */
+  .size-grid,
+  .transfer-headline-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .progress-percent {
+    font-size: 1.625rem;
+  }
+
+  /* The code is 47 characters with its separators. At this width it has to fit
+     the field rather than scroll horizontally. */
+  .resume-input {
+    font-size: 0.9375rem;
+    letter-spacing: 0.04em;
+  }
+
   .metadata-grid div,
   .metadata-grid div:nth-last-child(-n + 2) {
     border-right: 0;
@@ -879,5 +1349,16 @@ dd {
   button:active:not(:disabled),
   .action-card:hover {
     transform: none;
+  }
+
+  /*
+   * The progress bar snaps to each measured value instead of interpolating
+   * between them. The blanket rule above already collapses the duration; this
+   * is stated explicitly because the bar is the only element in the app whose
+   * animation carries information, and "no interpolation" is the behaviour
+   * being promised rather than "a faster interpolation".
+   */
+  .progress > span {
+    transition: none;
   }
 }

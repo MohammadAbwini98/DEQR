@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "protocol": "DEQR v2",
+  "generator": "scripts/protocol/generate-v2-vectors.ts",
+  "constants": {
+    "sessionId": 1592594996,
+    "fileId": 168496141,
+    "segmentSizeBytes": 65536,
+    "symbolSizeBytes": 4096,
+    "transportSize": "200000",
+    "segmentCount": 4,
+    "symbolsPerFullSegment": 16,
+    "symbolsInLastSegment": 1,
+    "lastSegmentBytes": 3392,
+    "manifestFixedTotalBytes": 84,
+    "dataFrameOverheadBytes": 32
+  },
+  "vectors": [
+    {
+      "file": "manifest-basic.bin",
+      "byteLength": 125,
+      "sha256": "858330198c3b97bd3afcc1b249bbde1589896e81e5be3528ba5d82b69a7a6d85",
+      "description": "Typical uncompressed manifest: four segments, the last one partial.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "200000",
+          "transportSize": "200000",
+          "segmentSizeBytes": 65536,
+          "symbolSizeBytes": 4096,
+          "segmentCount": 4,
+          "fecProfileId": 1,
+          "compressionMode": 0,
+          "compressionParam": 0,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "vector-sample.bin",
+          "mimeType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "file": "manifest-transport-profile.bin",
+      "byteLength": 124,
+      "sha256": "d2ded6a08892be403b7d7bf9f40fceb1539f59a22f20ec418e6690c8cb20dca5",
+      "description": "Manifest declaring transport profile 3 (Turbo) in the byte that used to be reserved.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "200000",
+          "transportSize": "200000",
+          "segmentSizeBytes": 65536,
+          "symbolSizeBytes": 4096,
+          "segmentCount": 4,
+          "fecProfileId": 1,
+          "compressionMode": 0,
+          "compressionParam": 0,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "vector-turbo.bin",
+          "mimeType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "file": "manifest-compressed.bin",
+      "byteLength": 129,
+      "sha256": "6e24e8b30c3478fb98836edec922e857b4388baf96410c8a221f23a2fac01f5f",
+      "description": "gzip transport: a 1 MiB file carried in 200,000 bytes, one 1 MiB compression window.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "1048576",
+          "transportSize": "200000",
+          "segmentSizeBytes": 65536,
+          "symbolSizeBytes": 4096,
+          "segmentCount": 4,
+          "fecProfileId": 1,
+          "compressionMode": 1,
+          "compressionParam": 20,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "vector-compressed.txt",
+          "mimeType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "file": "manifest-5gib.bin",
+      "byteLength": 126,
+      "sha256": "06ff66731a05104f4a3b6bcae3b860d32a25a33828b60343ec5b4d0f1ebbc8f2",
+      "description": "A 5 GiB logical file. Nothing of that size is ever allocated.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "5368709120",
+          "transportSize": "5368709120",
+          "segmentSizeBytes": 4194304,
+          "symbolSizeBytes": 1024,
+          "segmentCount": 1280,
+          "fecProfileId": 1,
+          "compressionMode": 0,
+          "compressionParam": 0,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "five-gibibytes.bin",
+          "mimeType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "file": "manifest-1tib.bin",
+      "byteLength": 124,
+      "sha256": "77759f302be998569b17a5da8a8adae3b79d00f10463e2a14e9ff97f439957c8",
+      "description": "A 1 TiB logical file at the maximum segment size.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "1099511627776",
+          "transportSize": "1099511627776",
+          "segmentSizeBytes": 67108864,
+          "symbolSizeBytes": 2048,
+          "segmentCount": 16384,
+          "fecProfileId": 1,
+          "compressionMode": 0,
+          "compressionParam": 0,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "one-tebibyte.bin",
+          "mimeType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "file": "manifest-unicode-name.bin",
+      "byteLength": 117,
+      "sha256": "ef1dbbbe2d976053e3f308436365528c8ca7867f005c743b047aae4658ad3022",
+      "description": "Multi-byte UTF-8 filename and an empty advisory MIME type.",
+      "expect": {
+        "kind": "manifest",
+        "manifest": {
+          "featureFlags": 0,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "originalSize": "200000",
+          "transportSize": "200000",
+          "segmentSizeBytes": 65536,
+          "symbolSizeBytes": 4096,
+          "segmentCount": 4,
+          "fecProfileId": 1,
+          "compressionMode": 0,
+          "compressionParam": 0,
+          "transportProfileId": 0,
+          "sha256": "963f21c518dd9b178077d6e9124a0a716d9b3b7115f994ee8eaf2c5f18c16652",
+          "filename": "ünïcode-ファイル-名前.bin",
+          "mimeType": ""
+        }
+      }
+    },
+    {
+      "file": "frame-source-seg0-sym0.bin",
+      "byteLength": 4128,
+      "sha256": "a4738f76c1da7fb3c9528b628c096707b395c811851a7fec8a1f54f0d9d87738",
+      "description": "First source symbol of the first segment.",
+      "expect": {
+        "kind": "data",
+        "frame": {
+          "frameType": 2,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "segmentIndex": 0,
+          "symbolId": 0,
+          "sourceSymbolCount": 16,
+          "frameFlags": 0,
+          "payloadLength": 4096,
+          "payloadSha256": "ae7f9d581c3caa0aefc9f00692563be4473478784d88a9a026d5377fea0efd8d"
+        }
+      }
+    },
+    {
+      "file": "frame-source-seg0-sym1.bin",
+      "byteLength": 4128,
+      "sha256": "f92520c2c2d7ad155c1a55fa15043d76eed19c4e8ce6ac1eabf8e3a89af5cdd0",
+      "description": "Second source symbol of the first segment.",
+      "expect": {
+        "kind": "data",
+        "frame": {
+          "frameType": 2,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "segmentIndex": 0,
+          "symbolId": 1,
+          "sourceSymbolCount": 16,
+          "frameFlags": 0,
+          "payloadLength": 4096,
+          "payloadSha256": "fa7ae75479104c95705b3879dcf9ec6d6ca9b796b09429adedf512b4d9597d8e"
+        }
+      }
+    },
+    {
+      "file": "frame-source-last-segment.bin",
+      "byteLength": 4128,
+      "sha256": "6908be233e592b63c5f89c764d4a1380cee8b219ff6f0d0583e72a35e95d7c62",
+      "description": "Only source symbol of the short final segment; payload is zero-padded to the symbol size.",
+      "expect": {
+        "kind": "data",
+        "frame": {
+          "frameType": 2,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "segmentIndex": 3,
+          "symbolId": 0,
+          "sourceSymbolCount": 1,
+          "frameFlags": 0,
+          "payloadLength": 4096,
+          "payloadSha256": "7c1712bb407c372e01f20ffe15fe53fa27b94ee034f1d671ae620e2c74de6c4a"
+        }
+      }
+    },
+    {
+      "file": "frame-repair-seg0.bin",
+      "byteLength": 4128,
+      "sha256": "289d20e39987a37ee985e944d3aeb37c95075f8819b28f9cdf05174d8646d4cd",
+      "description": "Repair symbol for the first segment; its id continues past the source range.",
+      "expect": {
+        "kind": "data",
+        "frame": {
+          "frameType": 3,
+          "sessionId": 1592594996,
+          "fileId": 168496141,
+          "segmentIndex": 0,
+          "symbolId": 19,
+          "sourceSymbolCount": 16,
+          "frameFlags": 0,
+          "payloadLength": 4096,
+          "payloadSha256": "f3d2f26760334a372649d764598a042972071cf351259cc74c6226882199785a"
+        }
+      }
+    },
+    {
+      "file": "reject-bad-crc.bin",
+      "byteLength": 4128,
+      "sha256": "64043952ad4320373692013a3770281aee95f9da0431943163031c1d8c2c97f9",
+      "description": "A payload byte flipped after the CRC was computed.",
+      "expect": {
+        "kind": "reject",
+        "code": "CRC_MISMATCH"
+      }
+    },
+    {
+      "file": "reject-truncated-manifest.bin",
+      "byteLength": 40,
+      "sha256": "23d95cf11b92b05fd72c6564afe37022f5d2d76bc64eebd98738dfc583ab5b6b",
+      "description": "Manifest cut short inside its fixed header.",
+      "expect": {
+        "kind": "reject",
+        "code": "FRAME_TOO_SHORT"
+      }
+    },
+    {
+      "file": "reject-truncated-data-frame.bin",
+      "byteLength": 4120,
+      "sha256": "245674b2b95b447cfe033f457c98e60a796531173eb83825234b36d0a8516dcd",
+      "description": "Data frame cut short inside its payload.",
+      "expect": {
+        "kind": "reject",
+        "code": "FRAME_TOO_SHORT"
+      }
+    },
+    {
+      "file": "reject-trailing-bytes.bin",
+      "byteLength": 4131,
+      "sha256": "f600f85aa6c6c0381746337f9ddfd604397e661c45c4afb7636d34b4a4c8584d",
+      "description": "A well formed data frame with three extra bytes appended.",
+      "expect": {
+        "kind": "reject",
+        "code": "TRAILING_BYTES"
+      }
+    },
+    {
+      "file": "reject-unknown-frame-type.bin",
+      "byteLength": 4128,
+      "sha256": "94e06794b45f272b3f098aeac278b5c4addb4abfab5cf152873fd790aee7b68e",
+      "description": "A frame type this revision does not define.",
+      "expect": {
+        "kind": "reject",
+        "code": "UNKNOWN_FRAME_TYPE"
+      }
+    },
+    {
+      "file": "reject-unsupported-version.bin",
+      "byteLength": 4128,
+      "sha256": "d87613a422ddef0e48313dea595ee561dc2087a7c964bdbbfa51f879d34d0685",
+      "description": "A future protocol version, which must be refused rather than guessed at.",
+      "expect": {
+        "kind": "reject",
+        "code": "UNSUPPORTED_VERSION"
+      }
+    },
+    {
+      "file": "reject-bad-magic.bin",
+      "byteLength": 4128,
+      "sha256": "5b0418d9c374e406119902ba4e8f3c59ac7f499c5a3fa7d6afc639fdba2ed663",
+      "description": "Not a DEQR frame at all.",
+      "expect": {
+        "kind": "reject",
+        "code": "BAD_MAGIC"
+      }
+    },
+    {
+      "file": "reject-critical-flag.bin",
+      "byteLength": 4128,
+      "sha256": "348aedbfe1f20198f9e368f6195dc037f2a4a61fa6bc550d5134d90f80886f38",
+      "description": "An unknown critical frame flag. Unknown advisory bits would be ignored; critical bits must not be.",
+      "expect": {
+        "kind": "reject",
+        "code": "UNSUPPORTED_CRITICAL_FEATURE"
+      }
+    },
+    {
+      "file": "reject-oversized-payload-length.bin",
+      "byteLength": 4128,
+      "sha256": "10db732f8da1bb031a671d4e5ddc76696f226433dc5018204ec899ed9d28fa8d",
+      "description": "A declared payload length far beyond both the buffer and the protocol limit. Must be refused before any allocation.",
+      "expect": {
+        "kind": "reject",
+        "code": "FIELD_OUT_OF_RANGE"
+      }
+    },
+    {
+      "file": "reject-source-symbol-out-of-range.bin",
+      "byteLength": 4128,
+      "sha256": "bda276dcae857e327e5481320f64d69e4ee8f8765e45a86829a6a7cbd54144f3",
+      "description": "A source symbol id at or above its own declared source-symbol count.",
+      "expect": {
+        "kind": "reject",
+        "code": "SYMBOL_OUT_OF_RANGE"
+      }
+    },
+    {
+      "file": "reject-inconsistent-segment-count.bin",
+      "byteLength": 125,
+      "sha256": "a4beb5694e33614944c8336c853d1e62ff6c40df6dcf70bba50c573a63176cee",
+      "description": "A manifest whose segmentCount disagrees with the sizes it declares.",
+      "expect": {
+        "kind": "reject",
+        "code": "INCONSISTENT_MANIFEST"
+      }
+    },
+    {
+      "file": "reject-compression-window-param.bin",
+      "byteLength": 129,
+      "sha256": "077034c988468fb9c4c3ccc8fe73a34b9a43f308209f2a3bcd1215d5f88e9728",
+      "description": "A gzip manifest whose compression window exponent is outside 16..26.",
+      "expect": {
+        "kind": "reject",
+        "code": "FIELD_OUT_OF_RANGE"
+      }
+    },
+    {
+      "file": "reject-compressed-expansion.bin",
+      "byteLength": 129,
+      "sha256": "af230e867c53cc8b319ed967ff8fff10660e705aa7d51815a78f92bd9a5635e8",
+      "description": "A gzip manifest whose transportSize exceeds the originalSize it claims to carry.",
+      "expect": {
+        "kind": "reject",
+        "code": "INCONSISTENT_MANIFEST"
+      }
+    },
+    {
+      "file": "reject-v1-frame.bin",
+      "byteLength": 52,
+      "sha256": "4cd8e9ef64155366e36e690f0d0924e4bc95fe46c990e3d2a19f01035814a358",
+      "description": "A DEQR v1 frame offered to the v2 parser.",
+      "expect": {
+        "kind": "reject",
+        "code": "V1_FRAME"
+      }
+    }
+  ]
+}

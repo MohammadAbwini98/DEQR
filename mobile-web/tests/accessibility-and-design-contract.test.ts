@@ -33,7 +33,10 @@ describe('mobile receiver accessibility and design contracts', () => {
     expect(app).toContain("heading?.focus({ preventScroll: true })");
     expect(app).toContain('ref={homeHeading} tabIndex={-1}');
     expect(app).toContain('ref={receiveHeadingRef} tabIndex={-1}');
-    expect(app).toContain("snapshot.state === 'CANCELLED'");
+    // Phase 05 replaced the protocol snapshot with one authoritative state, so
+    // the cancelled screen is now named by the state machine. The contract this
+    // asserts is unchanged: cancellation is a distinct, announced screen.
+    expect(app).toContain('RECEIVER_STATE.CANCELLED');
   });
 
   it('keeps the host indicator readable in both themes and states', async () => {
@@ -84,7 +87,13 @@ describe('mobile receiver accessibility and design contracts', () => {
 
     // Both affected pairs are a primary followed by a plain secondary; neither
     // may promote the navigation action above the action it returns from.
-    expect(app).toContain('<button className="primary" onClick={requestCamera}>Try camera again</button>');
+    //
+    // The retry button's *label* became conditional in Phase 09 - an
+    // interrupted transfer is continued rather than retried - so the assertion
+    // is on the structure it always meant: the retry is the primary, and the
+    // navigation beside it is not.
+    expect(app).toMatch(/<button className="primary" onClick=\{requestCamera\}>\{?[^<]*\}?<\/button>/);
+    expect(app).toContain("'Continue receiving' : 'Try camera again'");
     expect(app).toContain('<button onClick={returnHome}>Return to home</button>');
     expect(app).not.toContain('className="primary" onClick={returnHome}');
   });

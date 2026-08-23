@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DEQR Phase 11 — real OPFS certification</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        padding: 24px;
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p.sub { margin: 0 0 20px; opacity: 0.7; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(128,128,128,0.3); vertical-align: top; }
+      th { font-weight: 600; }
+      td.verdict { white-space: nowrap; font-weight: 600; }
+      .pass { color: #157f3b; }
+      .fail { color: #b3261e; }
+      td.detail { font-size: 12px; opacity: 0.85; word-break: break-word; }
+      #status { margin-bottom: 16px; }
+      button { font: inherit; padding: 6px 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>DEQR Phase 11 — receiver against a real OPFS</h1>
+    <p class="sub">
+      The shipping <code>ReceivePipeline</code> and <code>ReceiverStorage</code>, in a worker,
+      writing through this browser's own origin-private file system. Not an iPhone.
+    </p>
+    <div id="status">Loading…</div>
+    <table>
+      <thead>
+        <tr><th style="width: 90px">Result</th><th style="width: 340px">Check</th><th>Detail</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <script type="module" src="./opfs-certify.ts"></script>
+  </body>
+</html>

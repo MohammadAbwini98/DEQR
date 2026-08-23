@@ -2,91 +2,207 @@
 
 ## Overview
 
-DEQR is an offline desktop optical transfer application built with Electron, React, TypeScript, and Vite. It converts binary files into animated fountain-coded QR streams for screen-to-camera transmission.
+DEQR moves an arbitrary file between two computers that share no network, by
+animating it as fountain-coded QR frames on one screen and reading them with the
+other's camera. The sender is an Electron desktop application; the receiver is an
+installable Safari/Home-Screen PWA under `mobile-web/`. Nothing is uploaded,
+there is no backend, and the two halves interoperate only through the optical
+wire contract in [PROTOCOL-V2.md](./PROTOCOL-V2.md).
 
-## Implementation Status Legend
-- `[PROPOSED — M1]` = Planned for Milestone 1 implementation
-- `[DEFERRED — M2]` = Planned for Milestone 2
-- `[DEFERRED — M2+]` = Planned for future milestones
-- `[DEFERRED — Security]` = Awaiting security tranche specification
+**This document describes what is implemented.** It was previously a Milestone-1
+proposal and was rewritten in Phase 12 of the Large-File / Maximum-Speed program,
+because the shipped architecture had diverged from it far enough that the
+document was misleading rather than merely incomplete. Where something is not
+built, it says so.
 
 ---
 
-## Component Architecture
+## The one architectural decision everything follows from
+
+**No component ever holds the file.**
+
+The original design read a file into a buffer, containerised it, fountain-coded
+the buffer, and displayed the result — which put a hard ceiling near 32 MB on
+both sides and made the ceiling a memory limit rather than a protocol one.
+Phases 02 through 08 replaced that with a streaming pipeline in which every
+stage is bounded by *configuration* rather than by file size:
+
+- the sender reads windows off disk at 64-bit offsets and never materialises the
+  file (`src/main/streaming-sender.ts`);
+- the wire format carries segments, so the unit of recovery is a segment rather
+  than the whole transfer (`src/core/protocol-v2.ts`);
+- the receiver writes each recovered segment straight to its final offset in a
+  pre-sized OPFS file and holds at most two segments in memory
+  (`mobile-web/src/opfs-segment-store.ts`);
+- integrity is a streaming SHA-256 over bounded windows read back from that
+  file, because `crypto.subtle.digest` needs its whole input resident and a
+  receiver that never held the file could not have used it
+  (`src/core/sha256-stream.ts`);
+- export hands over a `File` that *references* the OPFS entry, so the share
+  sheet reads from disk rather than from a tab's heap.
+
+Measured consequence: a 4 GiB transfer completes byte for byte with receiver
+memory flat at 1.34 MiB and sender memory at 1.37 MiB.
+
+**What this does not mean.** See [Certified size](#certified-size) below. The
+architecture has no 32 MB limit; the *supported* maximum is a separate,
+physically-certified number, and it has not been earned yet.
+
+---
+
+## Component architecture
 
 ```text
-Electron Main Process (src/main/*)                  [PROPOSED — M1 scope]
-├── Application lifecycle & window management        [PROPOSED — M1]
-├── Portable environment paths                       [PROPOSED — M1]
-├── File selection via native dialog                 [PROPOSED — M1]
-├── Safe file read / binary buffer handling          [PROPOSED — M1]
-├── Offline enforcement & network protocol blocking  [PROPOSED — M1]
-├── Local audit log service (metadata only)          [PROPOSED — M1]
-└── Preload IPC Handlers (narrow, typed)             [PROPOSED — M1]
+Electron main process (src/main/*)
+├── index.ts                     lifecycle, window, CSP, network fail-closed
+├── ipc-handlers.ts              every renderer channel, each sender-checked
+├── streaming-sender.ts          reads the file in windows; emits v2 frames
+├── streaming-session-registry.ts  one live streaming session per id
+├── window-compressor.ts         the GZIP transport container (Phase 08)
+├── session-manager.ts           v1 sessions; loopback self-verification
+├── ipc-sender-policy.ts         "is this a trusted top-level frame"
+├── development-request-policy.ts  dev-only origin allowance, fail-closed
+├── pwa-host.ts / pwa-host-lifecycle.ts / pwa-certificate.ts / lan-addresses.ts
+│                                opt-in LAN HTTPS host for the receiver PWA
+└── (no audit-log service, no settings store — neither was built)
 
-Preload Bridge (src/preload/*)                       [PROPOSED — M1 scope]
-├── Narrow allowlisted contextBridge APIs            [PROPOSED — M1]
-├── No unrestricted filesystem access                [PROPOSED — M1]
-└── Validated typed message contracts                [PROPOSED — M1]
+Preload bridge (src/preload/index.ts)
+└── 19 allowlisted channels, typed, no filesystem surface
 
-React Renderer Process (src/renderer/*)              [PROPOSED — M1 scope]
-├── Dashboard (minimal navigation)                   [PROPOSED — M1]
-├── Send File workflow                               [PROPOSED — M1]
-│   ├── File picker / drag-drop zone                 [PROPOSED — M1]
-│   ├── File metadata inspector card                 [PROPOSED — M1]
-│   └── Start Transfer action                        [PROPOSED — M1]
-├── Active Transfer view                             [PROPOSED — M1]
-│   ├── Animated QR stream canvas                    [PROPOSED — M1]
-│   ├── Progress indicators (frame count, %)         [PROPOSED — M1]
-│   └── Pause / Cancel controls                      [PROPOSED — M1]
-├── Receive File view                                [PROPOSED — M1 loopback]
-│   ├── Loopback verification display                [PROPOSED — M1]
-│   ├── Camera capture preview                       [DEFERRED — M2]
-│   ├── WASM QR decoding worker pool                 [DEFERRED — M2]
-│   └── Camera alignment guide                       [DEFERRED — M2]
-├── Transfer Complete / Failed states                [PROPOSED — M1]
-├── Transfer History list                            [DEFERRED — M2]
-├── Settings panel                                   [DEFERRED — M2]
-└── AWKIT-style design system tokens                 [PROPOSED — M1]
+React renderer (src/renderer/*)
+├── App.tsx                      surfaces: dashboard, stream, loopback, receiver
+├── sender-model.ts / sender-state.ts   the sender's only state machine
+├── qr-frame-scheduler.ts        paced frame pull, decoupled from React state
+├── qr-render.ts                 QR matrix -> canvas
+├── components/StreamTransferView.tsx   the v2 sending surface
+├── components/SenderPreflightCard.tsx  size, profile, compression decision
+├── components/ResumeTokenEntry.tsx     the 40-character cross-air-gap token
+├── components/PwaHostCard.tsx          start/stop the LAN receiver host
+└── components/LoopbackView.tsx         local re-decode; never optical
 
-Optical Transfer Core (src/core/*)                   [PROPOSED — M1 scope]
-├── DEQR Container format encoder/decoder            [PROPOSED — M1]
-├── Payload segmentation / block division            [PROPOSED — M1]
-├── Compression decision (gzip when beneficial)      [PROPOSED — M1]
-├── Fountain encoder (Luby Transform LT)             [PROPOSED — M1]
-├── Fountain decoder (Soliton distribution)          [PROPOSED — M1]
-├── Frame protocol (versioned 20-byte headers)       [PROPOSED — M1]
-├── Session state management                         [PROPOSED — M1]
-├── SHA-256 integrity verification                   [PROPOSED — M1]
-└── AES-256-GCM encryption & key derivation          [DEFERRED — Security tranche]
+Optical core (src/core/*) — shared by sender and receiver
+├── protocol-v2.ts               frame codec, v1/v2 discrimination
+├── segment-encoder.ts / segment-decoder.ts / segmented-receiver.ts
+├── transport-profiles.ts        Reliable / Balanced / Turbo / Experimental
+├── qr-capacity.ts               version, ECC, payload per frame
+├── compression-policy.ts        content-sampled; carries no filename
+├── sha256-stream.ts             incremental SHA-256
+├── resume-token.ts              Crockford base32, 40 characters
+├── receiver-policy.ts           every receiver-side maximum, in one place
+├── crc32.ts, prng.ts, hash.ts, filename-sanitizer.ts
+└── protocol.ts, container.ts, fountain-*.ts, compression.ts   (v1)
 
-QR Layer (src/core/qr/*)                             [PARTIAL — M1 scope]
-├── QR capacity calculation                          [PROPOSED — M1]
-├── Frame generation (QR matrix via node-qrcode)     [PROPOSED — M1]
-├── Animated canvas rendering                        [PROPOSED — M1]
-├── Camera capture (MediaDevices API)                [DEFERRED — M2]
-├── WASM QR decoding workers (zxing-wasm)            [DEFERRED — M2]
-└── Adaptive FPS / density controls                  [DEFERRED — M2+]
-
-Local Persistence (src/storage/*)                    [PROPOSED — M1 minimal]
-├── User settings (JSON file)                        [PROPOSED — M1 minimal]
-├── Audit metadata log (JSON, no payload bytes)      [PROPOSED — M1]
-└── Resumable session state                          [DEFERRED — M2+]
+PWA receiver (mobile-web/src/*)
+└── documented separately in mobile-web/ARCHITECTURE.md
 ```
+
+### What was proposed and is not built
+
+Listed so the gap is a fact rather than a silence: AES-256-GCM payload
+encryption (the container reserves the flag and the receiver *rejects* an
+encrypted container), the metadata audit log, the settings store, transfer
+history, and the `zxing-wasm` decoder — the receiver uses `jsQR`.
 
 ---
 
-## Active Mobile Receiver and Local Development Topology
+## Two protocols, one receiver
 
-The active mobile receiver is `mobile-web/`, an installable Safari Web App/PWA
-that implements the version 1 DEQR wire contract with browser-safe TypeScript.
-It receives raw QR bytes, reconstructs the DEQR container, verifies SHA-256,
-and only then enables a user-controlled export. It has no backend, upload,
-telemetry, CDN, or remote-transfer path.
+`src/core/protocol.ts` (v1) and `src/core/protocol-v2.ts` (v2) both ship.
 
-The prior `.NET MAUI` material under `mobile/` is **superseded for active
-development** and retained only as historical/reference material. It must not
-be restored or extended as part of the WEB-IOS workstream.
+- **The desktop sender emits v2 for every optical transfer.** Since Phase 09 the
+  renderer drives `streamTransfer`; the v1 `transfer:*` channels remain
+  registered and are no longer reached from any UI surface. The only v1 encoder
+  still exercised is **loopback**, which re-decodes a file already on the local
+  disk and never reaches a camera.
+- **The PWA receiver accepts both.** `detectProtocolVersion` reads at most three
+  bytes and routes. This is deliberate and is not dead weight: a phone updates
+  independently of the desktop it is scanning, so a receiver that dropped v1
+  would stop reading senders still on the previous release.
+- **v1 is never reinterpreted as v2.** A v1 frame is detected and reported as
+  such. The discrimination is structural — a v2 frame opens with the magic
+  `'D' '2'` and a version byte; a v1 frame has no magic, and its 0x01 version
+  byte at offset 0 is the whole of its signature — so the two cannot collide.
+
+Full normative detail, including the migration rules, is in
+[PROTOCOL-V2.md](./PROTOCOL-V2.md) §3 and §10.
+
+---
+
+## Storage and resume
+
+The receiver's working storage is the Origin Private File System, one directory
+per transfer at `/deqr/sessions/<sessionId>-<fileId>/`:
+
+| File | Present when | Holds |
+|---|---|---|
+| `data.part` | always | the transport stream, pre-sized, written at plan offsets |
+| `original.part` | compressed transfers only | the expanded file, pre-sized at session start |
+| `checkpoint.json` | always | schema, plan identity, committed bitmap, counters |
+
+Three properties matter more than the layout:
+
+- **Pre-sizing is the storage preflight.** The file is truncated to its final
+  length before a payload byte is written, so a device without room fails at the
+  start rather than at 90%.
+- **A checkpoint is metadata, never payload**, and it is bounded before it is
+  read (`RECEIVER_POLICY.maxCheckpointBytes`) because it is *acted on*.
+- **Abandoned data has an end.** `sweepStaleSessions` runs when a session opens
+  and is bounded twice — by age and by count — so neither one ancient session
+  nor a run of recent ones can grow without limit in a directory the user cannot
+  see from the Files app.
+
+Resume is opt-in per session and refuses anything it cannot prove is the same
+transfer: a different digest, a different segmentation, a different session, a
+bitmap that disagrees with its own counters, a data file whose length does not
+match the plan, or **a checkpoint written under a schema this build does not
+know**. Every refusal deletes the session directory before the fresh transfer
+pre-sizes over it, because gaps in a reused file would read back as the previous
+transfer's bytes rather than as zeros and would fail the hash only at the end.
+
+Across the air gap the sender is told where to restart by a 40-character
+Crockford base32 token the user carries by hand (`src/core/resume-token.ts`).
+
+---
+
+## Compression
+
+Content-based, never extension-based. `src/core/compression-policy.ts` samples
+three bounded windows, then runs a full sizing walk fused into the SHA-256 pass,
+and can still fall back (`MEASURED_BELOW_THRESHOLD`). **The decision has no
+parameter that could carry a filename**, which is how the no-extension-transport
+rule is enforced structurally rather than by review.
+
+In GZIP mode the transport stream is a **container, not a stream**:
+`[u32BE length][gzip member]` per fixed run of original bytes, with
+`compressionParam` = log2 of the window (16..26, default 20 = 1 MiB). That is
+what makes a segment independently decodable, which is what makes resume and
+out-of-order recovery survive compression. The 10% threshold is a **storage**
+decision, not a throughput one: a compressed transfer holds the container and
+the expanded file at once.
+
+---
+
+## Process isolation and IPC rules
+
+- `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`,
+  `webSecurity: true`.
+- The renderer cannot reach Node primitives or the filesystem; every path goes
+  through the 19 allowlisted `contextBridge` methods.
+- **Every** renderer-to-main channel is registered through one wrapper that
+  rejects any frame that is not the trusted top-level renderer. There is no
+  exempt tier: window controls were considered for one and rejected, because a
+  frame that should not start a LAN listener should not close the window
+  mid-transfer either.
+- Packaged CSP is `default-src 'none'` / `script-src 'self'` / `connect-src
+  'none'`, with no inline script in the packaged HTML and no development
+  allowance reaching the package.
+- Electron fuses: `RunAsNode` off, `EnableNodeOptionsEnvironmentVariable` off,
+  `EnableNodeCliInspectArguments` off, cookie encryption on, ASAR integrity
+  validation on, `OnlyLoadAppFromAsar` on.
+
+---
+
+## Local development topology
 
 ```text
 scripts/run-local.cmd / scripts/run-local.ps1
@@ -98,121 +214,68 @@ scripts/run-local.cmd / scripts/run-local.ps1
      -> trusted HTTPS for iPhone camera, PWA, and service-worker tests
 ```
 
-Electron never loads or navigates to the PWA origin. The two applications
-interoperate through the DEQR optical wire contract, not through IPC, HTTP
-APIs, or a backend. Electron development allows only the exact loopback Vite
-origin on port 5173 (and its local HMR WebSocket); packaged Electron remains
+Electron never loads or navigates to the PWA origin. Development allows only the
+exact loopback Vite origin on port 5173 and its HMR socket; packaged Electron is
 fail-closed for network origins. The LAN PWA listener is a scoped development
-and physical-acceptance boundary, not a runtime transfer service.
+and physical-acceptance boundary, not a runtime transfer service — it serves
+static application assets only, `GET`/`HEAD` only, and no transferred payload
+passes through it.
 
-The desktop and PWA Vite applications use separate dependency-optimizer cache
-directories. This is required because their different dependency graphs must
-not invalidate each other's transformed module URLs. In particular, the
-desktop renderer's browser-safe `Buffer` shim is optimized in the desktop cache
-and is not shared with the PWA cache.
+The desktop and PWA Vite applications use separate dependency-optimizer caches,
+because their different dependency graphs must not invalidate each other's
+transformed module URLs.
 
-The local launcher treats an open TCP port as insufficient. It verifies the
-expected desktop HTML, entry module, and Buffer dependency response, plus the
-PWA HTML, entry module, and service-worker response, before starting Electron.
-For development launches Electron emits the concise readiness marker
-`DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available` only
-after the dashboard is mounted and the restricted preload bridge is present.
-This marker is launcher evidence, not a release or device-acceptance result.
+The launcher treats an open TCP port as insufficient: it verifies the expected
+desktop HTML, entry module and Buffer dependency response, plus the PWA HTML,
+entry module and service-worker response, before starting Electron. Electron
+then emits `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER
+preload=available` only after the dashboard has mounted and the preload bridge
+is present. **That marker is launcher evidence, not a release or device
+result.**
 
-Trusted-iPhone acceptance remains manual and separate: certificate trust and
-LAN reachability, Safari/installed-PWA launch, offline behavior, camera
-permission, optical reconstruction, integrity verification, and export must be
-observed and recorded on a physical device before they can be marked passed.
+### Preview configurations
 
----
-
-## Stream Protocol Layers (Version 1)
-
-### Layer 1: File Container Format
-```text
-DEQR Container
-├── Magic: "DEQR" (4 bytes)
-├── Protocol Version (2 bytes, uint16 BE)
-├── Filename Length (2 bytes, uint16 BE)
-├── Filename (variable, UTF-8, sanitized)
-├── MIME Type Length (2 bytes, uint16 BE)
-├── MIME Type (variable, UTF-8)
-├── Original File Size (8 bytes, uint64 BE)
-├── Compression Flag (1 byte: 0x00=none, 0x01=gzip)
-├── Encryption Flag (1 byte: 0x00=none, 0x01=AES-256-GCM — reserved for future)
-├── Creation Timestamp (8 bytes, uint64 BE, ms since epoch)
-├── SHA-256 Digest (32 bytes, original uncompressed file)
-└── Payload Bytes (compressed if flag set, otherwise raw)
-```
-
-### Layer 2: Fountain Frame Header (20 bytes)
-```text
-Frame Header
-├── Protocol Version (1 byte)
-├── Session ID (4 bytes, random per transfer)
-├── Segment Number (2 bytes, uint16 BE — reserved for multi-segment, always 0 in M1)
-├── Fountain Sequence Number (4 bytes, uint32 BE)
-├── Block Count (2 bytes, uint16 BE — total source blocks K)
-├── Block Size (2 bytes, uint16 BE — bytes per block)
-├── Total Payload Length (4 bytes, uint32 BE — container payload size)
-└── Header Checksum (1 byte — XOR of preceding 19 bytes)
-```
+`.claude/launch.json` also carries `pwa` (receiver dev server on 5311),
+`pwa-prod` (`vite preview` over the built `dist/pwa` on 5313 — the only way to
+exercise the service worker, which registers in production builds only), and
+`phase11-opfs` (the real-OPFS certification page on 5312).
 
 ---
 
-## Process Isolation & IPC Rules
-- `nodeIntegration`: false
-- `contextIsolation`: true
-- `sandbox`: true
-- `webSecurity`: true
-- Renderer process cannot call raw Node.js primitives or system commands
-- All file access must route through explicit `contextBridge` methods in `src/preload/index.ts`
-- IPC channels are explicitly allowlisted and input-validated in main process handlers
+## Certified size
+
+Two statements, and the gap between them is the whole point:
+
+> DEQR has **no 32 MB protocol-level limit**. Its architecture is streaming and
+> multi-gigabyte safe: a 4 GiB transfer has been verified end to end, byte for
+> byte, with receiver memory held flat at 1.34 MiB.
+
+> DEQR's **certified maximum transfer size is 0 bytes.** No size has been
+> certified on a physical device.
+
+The supported maximum is defined as the largest size that has passed the current
+release's physical-device certification matrix *and* the receiver's
+available-storage preflight. That matrix is
+[`PHASE-11-PHYSICAL-CERTIFICATION-MATRIX.md`](../reports/performance/PHASE-11-PHYSICAL-CERTIFICATION-MATRIX.md)
+and every row in it is still PENDING. Nothing in the product, the release notes
+or any listing may claim a maximum size or a maximum speed until it has rows.
+
+The reason this is not pedantry: at Balanced's measured 4,631 verified bytes per
+second, 1 GiB is a **64-hour continuous scan**. The pipeline can do it. Whether a
+phone, a battery, a camera and a person can is a different question, and it is
+the one still open.
 
 ---
 
-## Source Directory Structure (Proposed)
-```text
-src/
-├── main/
-│   ├── index.ts              # Electron main entry
-│   ├── window.ts             # Window management
-│   ├── ipc-handlers.ts       # IPC channel handlers
-│   ├── file-service.ts       # Safe file read/write/dialog
-│   ├── audit-service.ts      # Metadata audit logging
-│   └── security.ts           # CSP, protocol blocking, fuses
-├── preload/
-│   └── index.ts              # contextBridge API
-├── core/
-│   ├── container.ts          # DEQR container format
-│   ├── fountain-encoder.ts   # Luby Transform encoder
-│   ├── fountain-decoder.ts   # LT decoder
-│   ├── protocol.ts           # Frame header serialization
-│   ├── compression.ts        # Gzip selective compression
-│   ├── hash.ts               # SHA-256 utilities
-│   ├── session.ts            # Transfer session state
-│   └── qr/
-│       ├── capacity.ts       # QR version/density calculator
-│       └── renderer.ts       # QR matrix generation
-├── renderer/
-│   ├── index.html            # Entry HTML
-│   ├── main.tsx              # React root
-│   ├── App.tsx               # Router/layout
-│   ├── views/
-│   │   ├── Dashboard.tsx
-│   │   ├── SendFile.tsx
-│   │   ├── ActiveTransfer.tsx
-│   │   ├── ReceiveFile.tsx
-│   │   └── TransferResult.tsx
-│   ├── components/
-│   │   ├── QRCanvas.tsx      # Animated QR display
-│   │   ├── FileMetadata.tsx
-│   │   ├── ProgressBar.tsx
-│   │   └── TransferControls.tsx
-│   └── styles/
-│       ├── globals.css
-│       └── tokens.css        # Design system CSS variables
-└── storage/
-    ├── settings.ts           # Settings read/write
-    └── audit.ts              # Audit log read/append
-```
+## Where the rest is written down
+
+| Subject | Document |
+|---|---|
+| Wire format, normatively | [PROTOCOL-V2.md](./PROTOCOL-V2.md) |
+| Receiver internals, storage, backpressure, UI rules | [mobile-web/ARCHITECTURE.md](../../mobile-web/ARCHITECTURE.md) |
+| Threat model and controls | [SECURITY.md](./SECURITY.md) |
+| Failure symptoms and what they mean | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
+| Transfer profiles and measured recovery cost | [PROTOCOL-V2.md](./PROTOCOL-V2.md) §7 |
+| Benchmark method and results | [`.ai-team/reports/performance/`](../reports/performance/) |
+| The manual physical procedure | [PHASE-11-PHYSICAL-CERTIFICATION-MATRIX.md](../reports/performance/PHASE-11-PHYSICAL-CERTIFICATION-MATRIX.md) |
+| What shipped, in release language | [RELEASE-NOTES.md](../../RELEASE-NOTES.md) |

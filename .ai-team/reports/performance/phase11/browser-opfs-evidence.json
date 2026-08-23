@@ -1,0 +1,145 @@
+{
+  "surface": "browser",
+  "purpose": "the shipping receiver against a real (Chromium) OPFS",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.34493.1 Chrome/148.0.7778.280 Electron/42.9.2 Safari/537.36 MSIX",
+  "harness": "scripts/bench/browser/ (vite --config scripts/bench/browser/vite.config.ts, http://localhost:5312)",
+  "passed": 10,
+  "failed": 0,
+  "rows": [
+    {
+      "name": "storage support in a worker",
+      "ok": true,
+      "detail": {
+        "opfs": true,
+        "syncAccess": true,
+        "estimate": true,
+        "quotaMib": 6287,
+        "usageMib": 0
+      }
+    },
+    {
+      "name": "sha256-stream agrees with crypto.subtle",
+      "ok": true,
+      "detail": {
+        "bytes": 3145745,
+        "ours": "ed6e85e7ad462edf",
+        "theirs": "ed6e85e7ad462edf"
+      }
+    },
+    {
+      "name": "transfer 1 MiB into real OPFS",
+      "ok": true,
+      "detail": {
+        "sizeMib": 1,
+        "frames": 1554,
+        "storageKind": "opfs",
+        "segments": "1/1",
+        "heldMib": 1,
+        "transferMs": 46,
+        "verifyMs": 13,
+        "opfsWriteMibPerSecond": 21.7,
+        "hashMibPerSecond": 75.8,
+        "originUsedDeltaMib": 1,
+        "expected": "f4cb340d0ece5750",
+        "verified": "f4cb340d0ece5750",
+        "exportKind": "opfs"
+      }
+    },
+    {
+      "name": "export handoff: file opens after seal",
+      "ok": true,
+      "detail": {
+        "path": "deqr/sessions/b0000002-b0000002/data.part",
+        "declaredSize": 1048576,
+        "readBytes": 1048576,
+        "digestMatches": true
+      }
+    },
+    {
+      "name": "transfer 16 MiB into real OPFS",
+      "ok": true,
+      "detail": {
+        "sizeMib": 16,
+        "frames": 24846,
+        "storageKind": "opfs",
+        "segments": "12/12",
+        "heldMib": 1.34,
+        "transferMs": 579,
+        "verifyMs": 180,
+        "opfsWriteMibPerSecond": 27.6,
+        "hashMibPerSecond": 89,
+        "originUsedDeltaMib": 16,
+        "expected": "b5e8efe033e87b65",
+        "verified": "b5e8efe033e87b65",
+        "exportKind": "opfs"
+      }
+    },
+    {
+      "name": "export handoff: file opens after seal",
+      "ok": true,
+      "detail": {
+        "path": "deqr/sessions/b0000003-b0000002/data.part",
+        "declaredSize": 16777216,
+        "readBytes": 16777216,
+        "digestMatches": true
+      }
+    },
+    {
+      "name": "transfer 64 MiB into real OPFS",
+      "ok": true,
+      "detail": {
+        "sizeMib": 64,
+        "frames": 99380,
+        "storageKind": "opfs",
+        "segments": "48/48",
+        "heldMib": 1.34,
+        "transferMs": 2222,
+        "verifyMs": 723,
+        "opfsWriteMibPerSecond": 28.8,
+        "hashMibPerSecond": 88.5,
+        "originUsedDeltaMib": 64,
+        "expected": "e48a48c7a1c09131",
+        "verified": "e48a48c7a1c09131",
+        "exportKind": "opfs"
+      }
+    },
+    {
+      "name": "export handoff: file opens after seal",
+      "ok": true,
+      "detail": {
+        "path": "deqr/sessions/b0000004-b0000002/data.part",
+        "declaredSize": 67108864,
+        "readBytes": 67108864,
+        "digestMatches": true
+      }
+    },
+    {
+      "name": "interrupt and resume across pipelines, on real OPFS",
+      "ok": true,
+      "detail": {
+        "segmentsBeforeInterrupt": "3/6",
+        "adoptedOnResume": 3,
+        "resumedFlag": true,
+        "framesFirstPass": 6242,
+        "framesSecondPass": 12424,
+        "rejection": "-",
+        "digestMatches": true
+      }
+    },
+    {
+      "name": "sessions retained after export",
+      "ok": true,
+      "detail": {
+        "sessions": 4,
+        "retainedByPolicy": true,
+        "originUsageMib": 89,
+        "names": "b0000f01-b0000f02,b0000004-b0000002,b0000003-b0000002,b0000002-b0000002"
+      }
+    }
+  ],
+  "notThisRun": [
+    "iOS Safari and the iOS Home-Screen PWA. Chromium's OPFS is a different implementation from WebKit's.",
+    "The camera. Frames are constructed in the worker, not decoded from a screen.",
+    "The share sheet. Export is certified as far as the main thread opening the sealed file."
+  ]
+}

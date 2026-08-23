@@ -1,5 +1,3 @@
-import { TransferState } from '../shared/types';
-
 interface IpcErrorResult {
   error?: { message?: string };
 }
@@ -18,27 +16,12 @@ export function getIpcError(value: unknown): string | null {
 }
 
 /**
- * Binary units, because the divisor is 1024. An earlier renderer model divided
- * by 1024 while labelling the result KB/MB; that module is gone and this is the
- * behaviour that ships.
+ * What a save attempt on the desktop receiver means.
+ *
+ * Kept here because it is the one piece of the desktop *receive* flow that has
+ * to be provably honest: `false` from the IPC layer means no file is on disk,
+ * and the outcome must never carry a success notice alongside it.
  */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
-}
-
-export const ACTIVE_TRANSFER_STATES: ReadonlySet<TransferState> = new Set([
-  'streaming',
-  'paused',
-  'loopback-receiving',
-  'receive-camera',
-]);
-
-export function isActiveTransferState(state: TransferState): boolean {
-  return ACTIVE_TRANSFER_STATES.has(state);
-}
-
 export function getSaveOutcome(success: boolean): {
   state: 'completed' | 'failed';
   notice?: string;
@@ -56,3 +39,15 @@ export function getSaveOutcome(success: boolean): {
     error: 'Saving was not completed. No saved file is being reported. The save dialog may have been cancelled, or the received data may have been rejected.',
   };
 }
+
+/*
+ * `formatFileSize`, `ACTIVE_TRANSFER_STATES` and `isActiveTransferState` were
+ * removed in Phase 09 along with the `TransferState` union they were written
+ * against. Nothing was dropped: the size formatter stopped at MiB, which was
+ * correct under a 32 MiB ceiling and wrong for a 4 GiB transfer, and its
+ * behaviour - including every boundary its tests pinned - now lives in
+ * `sender-model.ts` as `formatBytes`, which formats from `bigint`. Which states
+ * a cancel is meaningful in is now `canCancel` and `cancelNeedsConfirmation` in
+ * `sender-state.ts`, derived from the one state machine rather than from a set
+ * kept beside it.
+ */

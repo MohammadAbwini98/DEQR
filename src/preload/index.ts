@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { DeqrAPI, TransferStats, LoopbackStats, LoopbackOptions, FileSelectionResult, PwaHostStatusView } from '../shared/types';
+import {
+  DeqrAPI,
+  TransferStats,
+  LoopbackStats,
+  LoopbackOptions,
+  FileSelectionResult,
+  PwaHostStatusView,
+  StreamingFrameResult,
+  StreamingProgressView,
+  StreamingSelectionResult,
+  StreamingSelectOptions,
+} from '../shared/types';
 
 const api: DeqrAPI = {
   windowControls: {
@@ -26,6 +37,15 @@ const api: DeqrAPI = {
         ipcRenderer.removeListener(channel, handler);
       };
     }
+  },
+  streamTransfer: {
+    select: (options?: StreamingSelectOptions): Promise<StreamingSelectionResult | null> =>
+      ipcRenderer.invoke('streamTransfer:select', options),
+    nextFrame: (sessionId: number): Promise<StreamingFrameResult> =>
+      ipcRenderer.invoke('streamTransfer:nextFrame', sessionId),
+    progress: (sessionId: number): Promise<StreamingProgressView | null> =>
+      ipcRenderer.invoke('streamTransfer:progress', sessionId),
+    cancel: (sessionId: number): Promise<void> => ipcRenderer.invoke('streamTransfer:cancel', sessionId)
   },
   loopback: {
     start: (sessionId: number, options: LoopbackOptions): Promise<void> => ipcRenderer.invoke('loopback:start', sessionId, options),
