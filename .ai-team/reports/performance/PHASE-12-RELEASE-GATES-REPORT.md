@@ -168,7 +168,7 @@ All run on 2026-08-23 against the Phase 12 tree.
 | No remote runtime resources | **PASS with one stated caveat** — the only absolute URLs in either bundle are `https://react.dev/errors/…` inside React's minified error *formatter* and a `feross.org` license comment in `ieee754`. Neither is fetched, and packaged CSP is `connect-src 'none'` |
 | Custom window controls | **NOT EXECUTED** — needs a click on a native window; see §7 |
 | Start / cancel / complete lifecycle | **NOT EXECUTED** — same reason |
-| Packaged launch, CSP, fuses, ASAR | see §8 |
+| Packaged launch, CSP, fuses, ASAR, offline packaging | **PASS** — see §8 |
 
 ---
 
@@ -227,12 +227,36 @@ Stated rather than quietly omitted.
 
 ## 8. Packaged artifact
 
-See §11 for the artifact produced by this phase. Before it, the recorded artifact
-was built from `3358ac0` and **predates the entire program** — every Phase 00–11
-source file was uncommitted until this phase. `npm run release:verify` confirmed
-the old hashes still matched their manifest and warned that HEAD had moved past
-them; `npm run test:packaged` passed, but against that same pre-program archive
-and so proved nothing about this code.
+**Before this phase, no packaged artifact had ever contained the program.** The
+recorded set was built from `3358ac0`, and every Phase 00–11 source file was
+still uncommitted. `npm run release:verify` confirmed those hashes still matched
+their manifest and warned that HEAD had moved past them; `npm run test:packaged`
+passed, but against that pre-program archive, and so proved nothing about this
+code. The work was committed to `phase-12-release-gates` as `940e1d2` and rebuilt
+with `npm run release`, which ran the full gate set before packaging.
+
+### The artifact
+
+Built from `940e1d2` on `phase-12-release-gates` at 2026-08-23 18:13:39.
+
+| Artifact | Bytes | SHA-256 |
+|---|---|---|
+| `release/deqr 0.1.0.exe` (portable) | 85,039,747 | `C0EA1571BFA0E1F0F13C61E657A3156515B6FD943D5713B04A37EE380E2073DE` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,231,500 | `8E3B6124ADD3B206A48A6CC2007C41534BE74A57D5D247F6A9B71FF9DB45785F` |
+| `resources/app.asar` | 4,847,726 | `522090538BED4EB3446E7F7ECF7439D3E2F6B4806F122E78281D22DE5FCC5CB8` |
+
+### Validation
+
+| Check | Result |
+|---|---|
+| `npm run release:verify` | **PASS** — hashes match the manifest, and **matches HEAD (940e1d2)** |
+| `npm run test:packaged` | **PASS** — required files present, asset paths relative, `main` entry correct |
+| Electron fuses, read from `release/win-unpacked/deqr.exe` | **PASS, all six** — `RunAsNode` DISABLE, `EnableCookieEncryption` ENABLE, `EnableNodeOptionsEnvironmentVariable` DISABLE, `EnableNodeCliInspectArguments` DISABLE, `EnableEmbeddedAsarIntegrityValidation` ENABLE, `OnlyLoadAppFromAsar` ENABLE. `FUSE_VERDICT PASS` |
+| **Packaged launch** | **PASS** — `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available`, graceful close, **exit code 0**, and **nothing emitted after the marker** — no blocked-network warning, no lifecycle failure, no post-close exception |
+| Packaged CSP | **PASS** — `default-src 'none'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'`, delivered as a **response header**. The packaged `index.html` contains **zero** inline scripts, so `script-src 'self'` needs no allowance |
+| Offline packaging | **PASS** — the receiver ships inside `app.asar` at `dist/pwa/`: `boot.js` (5,559 bytes), the **v4** service worker, `manifest.webmanifest`, `favicon.ico`, `icons/`, and `assets/` with `index-BAgx3QX9.js`, `index-CrC5arbT.css` and `receive-worker-BxSdhboO.js`. **Every asset the packaged `index.html` references resolves inside the archive**, checked by extracting it rather than inferred from the build |
+| Shell-fix presence | **PASS** — confirmed by extraction: the packaged worker is `deqr-mobile-shell-v4`, network-first. This is the **first artifact carrying WEB-IOS-SHELL-018**, and the first carrying any part of the program |
+| No remote runtime resources | **PASS with the caveat in §5** |
 
 ---
 
@@ -244,8 +268,11 @@ Two independent reasons, either sufficient:
 
 1. **The certified maximum transfer size is 0 bytes.** No size has been certified
    on a physical device. `PHASE-11-PHYSICAL-CERTIFICATION-MATRIX.md` has seven
-   named gates and every row is PENDING, including the packaged-Electron gate
-   (G7), WebKit's OPFS (G1) and the share-sheet export limit (G2).
+   named gates and every row is still PENDING, including WebKit's OPFS (G1) and
+   the share-sheet export limit (G2). Note that **G7 is not closed by §8**: this
+   phase proved the packaged app *launches, is secure and carries the receiver*,
+   while G7 asks for a packaged optical transfer **to a phone**, which is a
+   physical run.
 2. **The default transport profile is not certified.** Which profile should be
    the default depends on camera pixels per QR module at a realistic distance,
    which no one has measured on a phone.

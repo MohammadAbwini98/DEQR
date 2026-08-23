@@ -366,10 +366,32 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
-## Current Release Artifacts (2026-08-18)
+## Current Release Artifacts (2026-08-23)
 
 **Authoritative record of what is currently built.** `release/` is gitignored, so its
 `RELEASE-MANIFEST.json` does not survive this machine; these hashes are the durable copy.
+
+- Built from `940e1d2` on `phase-12-release-gates` at 2026-08-23 18:13:39 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
+
+| Artifact | Bytes | SHA-256 |
+| --- | --- | --- |
+| `release/deqr 0.1.0.exe` (portable) | 85,039,747 | `C0EA1571BFA0E1F0F13C61E657A3156515B6FD943D5713B04A37EE380E2073DE` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,231,500 | `8E3B6124ADD3B206A48A6CC2007C41534BE74A57D5D247F6A9B71FF9DB45785F` |
+| `resources/app.asar` | 4,847,726 | `522090538BED4EB3446E7F7ECF7439D3E2F6B4806F122E78281D22DE5FCC5CB8` |
+
+- **The first artifact that contains the Large-File / Maximum-Speed program at all.** Every earlier build, including the whole `3F092ADF...` set below, predates it: all Phase 00-11 source was uncommitted until Phase 12 committed it as `940e1d2`. Any evidence citing an earlier artifact describes a build with no v2 streaming path in it.
+- **The first artifact carrying the WEB-IOS-SHELL-018 shell fix.** Confirmed inside `app.asar` by extraction rather than inferred from the build: `dist/pwa/sw.js` is `deqr-mobile-shell-v4` and network-first, `dist/pwa/boot.js` is present at 5,559 bytes, and `dist/pwa/assets/` carries `index-BAgx3QX9.js`, `index-CrC5arbT.css` and `receive-worker-BxSdhboO.js` - every asset the packaged `index.html` references resolves inside the archive.
+- **Packaged validation, all executed against this artifact.** `release:verify` reports hashes matching the manifest and **matches HEAD (940e1d2)**. `test:packaged` PASS. All six Electron fuses read directly from `release/win-unpacked/deqr.exe`: `FUSE_VERDICT PASS`. **Packaged launch PASS** - `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available`, graceful close, **exit code 0, nothing emitted after the marker**. Packaged CSP is `default-src 'none'` / `script-src 'self'` / `connect-src 'none'` delivered as a response header, with zero inline scripts in the packaged HTML.
+- **What this artifact still does not have** is a single physical-device row. It exists so the certification matrix can finally be run against a build that contains the architecture being certified.
+- Re-check at any time with `npm run release:verify`, which compares the files against the manifest and warns when HEAD has moved past them. `npm run release:list` shows what was built when.
+- **Never build a release with `npm run package`**: it passes `--dir` and refreshes only `release/win-unpacked/`, leaving the portable `.exe` at whatever it already was. That is how a stale portable shipped twice, once still carrying a crash that had already been fixed. `npm run release` only ever calls `dist`.
+
+## Superseded Release Artifacts (2026-08-18)
+
+**Historical record. These files no longer exist on disk** - the Phase 12 release build
+overwrote `release/`. Kept because earlier evidence in this document cites them, and
+because the reason each was replaced is worth keeping. **None of them contains any part
+of the Large-File / Maximum-Speed program.**
 
 - Built from `3358ac0` on `main` at 2026-08-18 20:28:07 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
 
