@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { PwaHostStatusView } from '../../shared/types';
+import { QR_QUIET_ZONE_MODULES, planQrGeometry } from '../../core/qr-capacity';
 import { PwaHostPendingAction, presentPwaHost, shouldRestoreActionFocus } from '../pwa-host-model';
+import { applyCanvasGeometry } from '../qr-render';
 
 /**
  * Starts and stops the iPhone receiver, and shows how to reach it while it is
@@ -22,6 +24,26 @@ const KIND_HINT: Record<string, string> = {
     'Requires the iPhone to be on this same network, and Windows Firewall must allow inbound connections on this port.',
   other: 'Reachability depends on how this interface is routed.',
 };
+
+/**
+ * The layout's allowance for the address symbol, in CSS pixels.
+ *
+ * A *budget*, not a size: the symbol drawn is the largest whole-module square
+ * that fits inside it, so it is usually a few pixels smaller. See the effect
+ * below for why a fixed size cannot work here.
+ */
+const QR_ADDRESS_BUDGET_CSS_PX = 168;
+/** This is read across a desk from a phone held in a hand, not at a distance. */
+const QR_ADDRESS_ECC = 'M' as const;
+/**
+ * The spec's minimum, taken from the shared constant rather than restated.
+ *
+ * This call previously passed `margin: 2` — half the required quiet zone, which
+ * is precisely the drift `QR_QUIET_ZONE_MODULES` exists to prevent. The card's
+ * white tile supplies the visual padding; it is not a substitute for the quiet
+ * zone, because a decoder measures the quiet zone in modules.
+ */
+const QR_ADDRESS_QUIET_ZONE_MODULES = QR_QUIET_ZONE_MODULES;
 
 export default function PwaHostCard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -104,23 +126,61 @@ export default function PwaHostCard() {
   const activeEntry = status?.addresses.find((entry) => entry.url === activeUrl);
   const showQr = view.showQr && Boolean(activeUrl);
 
+  /**
+   * Draws the address symbol on whole pixels.
+   *
+   * This asked for `width: 168` and let `qrcode` divide 168 by whatever module
+   * count fell out of the URL. A tailnet address is a version-2 symbol, 25
+   * modules plus 4 of quiet zone, so the scale was 168 / 29 = 5.79: the library
+   * maps each destination pixel back through `floor(px / scale)`, so most
+   * modules got five pixels and roughly one in five got six. Every edge in the
+   * symbol landed on a fractional boundary, and the module grid a decoder looks
+   * for was no longer regular.
+   *
+   * A fixed pixel width cannot be right here, because unlike a transfer frame
+   * the payload length varies: a longer address crosses into version 3 and the
+   * divisor changes underneath the same 168. So the budget is a *maximum* and
+   * the symbol is built up from it — `QR_ADDRESS_BUDGET_CSS_PX` bounds the
+   * layout, `planQrGeometry` picks the largest integer module scale that fits,
+   * and the canvas is exactly that many device pixels with a CSS box to match.
+   * Usually a few pixels smaller than the budget, which is the trade: a symbol
+   * leaving pixels unused beats one filling its box with uneven modules.
+   *
+   * `scale` and `margin` rather than `width`, for the same reason as
+   * `qr-render.ts` — the first multiplies module count by whole pixels, the
+   * second divides a pixel budget by module count.
+   */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !showQr || !activeUrl) return;
 
     let disposed = false;
-    QRCode.toCanvas(canvas, activeUrl, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 168,
-      color: { dark: '#000000', light: '#ffffff' },
-    })
-      .then(() => {
+    void (async () => {
+      try {
+        // The version is a property of this address, so it has to be resolved
+        // before the geometry rather than assumed.
+        const { version } = QRCode.create(activeUrl, { errorCorrectionLevel: QR_ADDRESS_ECC });
+        const geometry = planQrGeometry({
+          version,
+          budgetCssPx: QR_ADDRESS_BUDGET_CSS_PX,
+          devicePixelRatio: window.devicePixelRatio || 1,
+          quietZoneModules: QR_ADDRESS_QUIET_ZONE_MODULES,
+        });
+        if (disposed) return;
+        applyCanvasGeometry(canvas, geometry);
+
+        await QRCode.toCanvas(canvas, activeUrl, {
+          errorCorrectionLevel: QR_ADDRESS_ECC,
+          version,
+          scale: geometry.moduleScale,
+          margin: geometry.quietZoneModules,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
         if (!disposed) setQrFailed(false);
-      })
-      .catch(() => {
+      } catch {
         if (!disposed) setQrFailed(true);
-      });
+      }
+    })();
 
     return () => {
       disposed = true;
@@ -154,10 +214,12 @@ export default function PwaHostCard() {
 
           <div className="pwa-host-body">
             <div className="pwa-host-qr">
+              {/* Deliberately unsized here. The backing store and the CSS box
+                  are both set by `applyCanvasGeometry` from the resolved module
+                  scale, and an attribute here would be a second opinion about a
+                  size that depends on the address and the display. */}
               <canvas
                 ref={canvasRef}
-                width={168}
-                height={168}
                 role="img"
                 aria-label={`QR code linking to the iPhone receiver at ${activeUrl}`}
               />

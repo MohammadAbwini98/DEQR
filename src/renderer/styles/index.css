@@ -281,10 +281,18 @@ p {
   background: #ffffff;
 }
 
+/*
+ * No width or height here on purpose.
+ *
+ * The canvas is sized by `applyCanvasGeometry`, which sets the backing store
+ * and the CSS box together from the module scale it resolved for this address
+ * and this display. A size in the stylesheet is a second opinion about that:
+ * it pins a square that the symbol may not divide into whole modules, and the
+ * browser resamples to obey it. `display: block` stays, because an inline
+ * canvas sits on the text baseline and leaves a gap under it.
+ */
 .pwa-host-qr canvas {
   display: block;
-  width: 168px;
-  height: 168px;
 }
 
 .pwa-host-details {
