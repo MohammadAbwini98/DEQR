@@ -10,6 +10,7 @@ import { QrFrameScheduler, type SchedulerStats } from '../qr-frame-scheduler';
 import {
   QrRenderPlan,
   applyCanvasGeometry,
+  measureQrBudget,
   paintQrFrame,
   planMatches,
   resolveQrRenderPlan,
@@ -54,13 +55,6 @@ import {
  * distinguish the two.
  */
 
-/**
- * Room the layout gives the symbol, in CSS pixels.
- *
- * The planner floors this to a whole number of pixels per module, so the drawn
- * symbol is usually a little smaller - which is the point.
- */
-const QR_BUDGET_CSS_PX = 480;
 
 /**
  * How often progress is read back from the main process.
@@ -104,6 +98,14 @@ export default function StreamTransferView({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const schedulerRef = useRef<QrFrameScheduler | null>(null);
+  /**
+   * The symbol currently being drawn.
+   *
+   * A ref rather than an effect-local, because the resize observer below has to
+   * be able to discard it: the plan encodes a module scale, and a window that
+   * no longer has room for that scale needs a new one.
+   */
+  const planRef = useRef<QrRenderPlan | null>(null);
   const estimatorRef = useRef<EtaEstimator>(undefined as unknown as EtaEstimator);
   estimatorRef.current ??= new EtaEstimator();
 
@@ -142,7 +144,6 @@ export default function StreamTransferView({
 
   useEffect(() => {
     let disposed = false;
-    let plan: QrRenderPlan | null = null;
     let finishedReported = false;
 
     const scheduler = new QrFrameScheduler(
@@ -179,20 +180,25 @@ export default function StreamTransferView({
         const canvas = canvasRef.current;
         if (!canvas) return;
         try {
-          if (!planMatches(plan, frame)) {
+          if (!planMatches(planRef.current, frame)) {
             // Resolved once and then held. Every frame in a pass is the same
             // length, so the QR version is constant; re-resolving per frame
             // would cost an encode and, worse, could resize the symbol
             // mid-stream and make the camera re-acquire its framing.
-            plan = resolveQrRenderPlan({
+            //
+            // The budget is read here rather than captured, so the plan that
+            // replaces a discarded one is built against the window as it is
+            // now. Discarding is the resize observer's decision, not this one's.
+            const next = resolveQrRenderPlan({
               frameBytes: frame.length,
               eccLevel: profile.eccLevel,
-              budgetCssPx: QR_BUDGET_CSS_PX,
+              budgetCssPx: measureQrBudget(canvas),
               devicePixelRatio: window.devicePixelRatio || 1,
             });
-            applyCanvasGeometry(canvas, plan.geometry);
+            planRef.current = next;
+            applyCanvasGeometry(canvas, next.geometry);
           }
-          await paintQrFrame(canvas, frame, plan);
+          await paintQrFrame(canvas, frame, planRef.current!);
           if (!disposed) setRenderError(false);
         } catch {
           if (!disposed) setRenderError(true);
@@ -208,10 +214,56 @@ export default function StreamTransferView({
       disposed = true;
       scheduler.stop();
       schedulerRef.current = null;
-      plan = null;
+      planRef.current = null;
     };
     // Deliberately not keyed on the callbacks; see the refs above.
   }, [sessionId, profile]);
+
+  /* ------------------------------------------------------ keeping it in view */
+
+  /**
+   * Re-plans the symbol when the window stops having room for the one on screen.
+   *
+   * The trade-off is real and it is decided in one direction: resizing the
+   * symbol mid-stream makes the receiving camera re-acquire its framing, which
+   * costs frames. Letting it overflow costs the transfer, because the part of
+   * the code that is off-screen is not dim or small — it is absent, and no
+   * amount of error correction recovers a symbol that was never displayed.
+   *
+   * So the plan is discarded only when the *module scale* would actually
+   * change. Dragging a window edge by a few pixels usually does not change it,
+   * and nothing happens; crossing a threshold does, and the next frame is drawn
+   * at the new size.
+   */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = canvas?.parentElement?.parentElement?.parentElement;
+    if (!canvas || !container || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(() => {
+      const held = planRef.current;
+      if (!held) return;
+      try {
+        const next = resolveQrRenderPlan({
+          frameBytes: held.frameBytes,
+          eccLevel: held.eccLevel,
+          budgetCssPx: measureQrBudget(canvas),
+          devicePixelRatio: window.devicePixelRatio || 1,
+          version: held.version,
+        });
+        if (next.geometry.moduleScale !== held.geometry.moduleScale) planRef.current = null;
+      } catch {
+        // The window is now too small for a whole-pixel symbol at this version.
+        // Discarding makes the next paint re-plan and surface that on the
+        // render-error path, which says so, rather than drawing something a
+        // camera cannot read.
+        planRef.current = null;
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [sessionId]);
 
   /* ---------------------------------------------------- hold, from the state */
 

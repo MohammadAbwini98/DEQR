@@ -8,8 +8,11 @@ import { V2_DATA_LAYOUT, V2_FRAME_TYPE, serializeDataFrame } from '../../src/cor
 import { SegmentEncoder } from '../../src/core/segment-encoder';
 import { TRANSPORT_PROFILES, frameBytesFor } from '../../src/core/transport-profiles';
 import {
+  QR_BUDGET_MAX_CSS_PX,
+  QR_BUDGET_MIN_CSS_PX,
   QrPayloadTooLargeError,
   applyCanvasGeometry,
+  chooseQrBudget,
   paintQrFrame,
   planMatches,
   resolveQrRenderPlan,
@@ -273,5 +276,90 @@ describe('canvas geometry is applied to both the backing store and the box', () 
     context.fillRect(0, 0, 4, 4);
     applyCanvasGeometry(canvas, plan.geometry);
     expect(context.getImageData(0, 0, 1, 1).data[0]).toBe(0x12);
+  });
+});
+
+/**
+ * The symbol has to fit the window it is drawn in.
+ *
+ * `budgetCssPx` was a flat 480 that never looked at the window. On a short
+ * window — a 1125x853 desktop window, say — the stage plus the header,
+ * guidance and metrics around it came to more than the content area, and the
+ * bottom of the symbol was simply cut off. That is not a degraded symbol: the
+ * modules below the fold are absent, not faint, and error correction has
+ * nothing to work with.
+ */
+describe('the symbol is budgeted from the room that exists', () => {
+  /** The shipping default, looked up by name; the export is a list. */
+  const balancedProfile = () => {
+    const profile = TRANSPORT_PROFILES.find((entry) => entry.name.toLowerCase() === 'balanced');
+    if (!profile) throw new Error('no balanced transport profile');
+    return profile;
+  };
+
+  it('takes the smaller side, because the symbol is square', () => {
+    expect(chooseQrBudget(600, 300)).toBe(300);
+    expect(chooseQrBudget(300, 600)).toBe(300);
+  });
+
+  it('never exceeds the maximum, however much room there is', () => {
+    expect(chooseQrBudget(4000, 4000)).toBe(QR_BUDGET_MAX_CSS_PX);
+  });
+
+  it('never returns a symbol too small to resolve', () => {
+    expect(chooseQrBudget(40, 40)).toBe(QR_BUDGET_MIN_CSS_PX);
+    expect(chooseQrBudget(-10, -10)).toBe(QR_BUDGET_MAX_CSS_PX);
+  });
+
+  it('falls back rather than collapsing before the layout settles', () => {
+    // A first paint can measure zero. Treating that as a tiny window would
+    // draw a minimum-size symbol and then have to resize it a frame later.
+    expect(chooseQrBudget(0, 0)).toBe(QR_BUDGET_MAX_CSS_PX);
+    expect(chooseQrBudget(Number.NaN, Number.NaN)).toBe(QR_BUDGET_MAX_CSS_PX);
+    expect(chooseQrBudget(Number.NaN, 320)).toBe(320);
+  });
+
+  it('fits the window that was reported cut off', () => {
+    // Measured from that window: an 853px-tall window, ~57px of titlebar, 48px
+    // of content padding, and ~250px of header, guidance, metrics and gaps
+    // around the stage, leaving the stage about 498px of which its own padding
+    // takes 80.
+    const availableHeight = 853 - 57 - 48 - 250 - 80;
+    const availableWidth = 592 - 80;
+    const budget = chooseQrBudget(availableWidth, availableHeight);
+
+    expect(budget).toBeLessThan(480);
+    expect(budget).toBe(418);
+
+    // And the symbol that budget produces has to actually fit the space.
+    const profile = balancedProfile();
+    const plan = resolveQrRenderPlan({
+      frameBytes: frameBytesFor(profile),
+      eccLevel: profile.eccLevel,
+      budgetCssPx: budget,
+      devicePixelRatio: 1,
+    });
+    expect(plan.geometry.cssSize).toBeLessThanOrEqual(availableHeight);
+    expect(plan.geometry.cssSize).toBeLessThanOrEqual(availableWidth);
+  });
+
+  it('shrinks the drawn symbol when the window does', () => {
+    const profile = balancedProfile();
+    const at = (budget: number) =>
+      resolveQrRenderPlan({
+        frameBytes: frameBytesFor(profile),
+        eccLevel: profile.eccLevel,
+        budgetCssPx: budget,
+        devicePixelRatio: 1,
+      }).geometry;
+
+    const roomy = at(chooseQrBudget(2000, 2000));
+    const cramped = at(chooseQrBudget(2000, 300));
+
+    expect(cramped.cssSize).toBeLessThan(roomy.cssSize);
+    expect(cramped.cssSize).toBeLessThanOrEqual(300);
+    // Still whole modules at both sizes: fitting must not cost the alignment.
+    expect(cramped.pixelSize).toBe(cramped.totalModules * cramped.moduleScale);
+    expect(roomy.pixelSize).toBe(roomy.totalModules * roomy.moduleScale);
   });
 });

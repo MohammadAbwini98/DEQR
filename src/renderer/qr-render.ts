@@ -39,6 +39,83 @@ import {
   smallestVersionFor,
 } from '../core/qr-capacity';
 
+/**
+ * Largest symbol the layout will ever draw, in CSS pixels.
+ *
+ * Past this a bigger symbol buys nothing: the receiving camera's resolution,
+ * not the sender's screen, is what sets how many camera pixels land on a
+ * module, and a symbol wider than the viewing distance supports is just a
+ * symbol the phone has to be moved back from.
+ */
+export const QR_BUDGET_MAX_CSS_PX = 480;
+
+/**
+ * Smallest symbol worth drawing, in CSS pixels.
+ *
+ * A version-18 frame is 97 modules including its quiet zone, so this is a touch
+ * under two device pixels per module. Below it `planQrGeometry` refuses to give
+ * every module a whole pixel, which is the honest outcome: the caller surfaces
+ * a render error saying the window is too small, rather than drawing something
+ * no camera can resolve.
+ */
+export const QR_BUDGET_MIN_CSS_PX = 160;
+
+/**
+ * Turns the room a layout has into the budget a symbol may use.
+ *
+ * Separated from the DOM reading that feeds it so the decision — which is the
+ * part that was wrong — can be tested without a browser. The rule is only:
+ * the symbol is square, so the smaller side wins, and the result is clamped.
+ *
+ * A non-finite or negative input means the layout has not settled yet (a first
+ * paint before styles resolve, most often). Falling back to the maximum rather
+ * than to zero keeps that transient from being mistaken for a tiny window.
+ */
+export function chooseQrBudget(availableWidth: number, availableHeight: number): number {
+  const usable = [availableWidth, availableHeight].filter(
+    (value) => Number.isFinite(value) && value > 0,
+  );
+  if (usable.length === 0) return QR_BUDGET_MAX_CSS_PX;
+  const smaller = Math.floor(Math.min(...usable));
+  return Math.max(QR_BUDGET_MIN_CSS_PX, Math.min(smaller, QR_BUDGET_MAX_CSS_PX));
+}
+
+/**
+ * How much room the symbol actually has, read from the layout as rendered.
+ *
+ * This lives next to `chooseQrBudget` rather than in the view, because "how big
+ * may this symbol be" is a rendering question and the view was the only thing
+ * that knew the answer. It walks up from the canvas — stage, view, scroll
+ * container — so the caller supplies nothing that can drift.
+ *
+ * Width comes from the stage, which CSS has already bounded. Height is the
+ * scroll container's box minus everything in the view that is *not* the stage:
+ * header, guidance, metrics, controls and the gaps between them, measured
+ * rather than assumed, so moving any of them cannot silently reintroduce an
+ * overflow. Excluding the stage from that subtraction is what stops the
+ * measurement feeding back on itself when the symbol resizes.
+ */
+export function measureQrBudget(canvas: HTMLCanvasElement): number {
+  const stage = canvas.parentElement;
+  const view = stage?.parentElement;
+  const container = view?.parentElement;
+  if (!stage || !view || !container) return QR_BUDGET_MAX_CSS_PX;
+
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  const stageStyle = getComputedStyle(stage);
+  const containerStyle = getComputedStyle(container);
+
+  const stagePadX = px(stageStyle.paddingLeft) + px(stageStyle.paddingRight);
+  const stagePadY = px(stageStyle.paddingTop) + px(stageStyle.paddingBottom);
+  const containerPadY = px(containerStyle.paddingTop) + px(containerStyle.paddingBottom);
+  const aroundTheStage = view.offsetHeight - stage.offsetHeight;
+
+  return chooseQrBudget(
+    stage.clientWidth - stagePadX,
+    container.clientHeight - containerPadY - aroundTheStage - stagePadY,
+  );
+}
+
 export interface QrRenderPlan {
   version: number;
   eccLevel: QrEccLevel;

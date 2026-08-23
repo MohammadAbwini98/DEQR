@@ -74,9 +74,20 @@ button.danger {
   color: var(--accent-danger);
 }
 
+/*
+ * `height`, not `min-height`.
+ *
+ * With `min-height` this container grows past the viewport whenever its content
+ * is tall, so `.content`'s `overflow: auto` never engages and the *document*
+ * scrolls instead. Two things followed from that, and both looked like separate
+ * bugs: the titlebar scrolled out of view, taking the only window controls and
+ * the only drag region with it (the window is `frame: false`); and nothing in
+ * the layout had a bounded height, so the QR symbol had no available-space to
+ * be measured against and simply overflowed.
+ */
 .app-container {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   flex-direction: column;
 }
 
@@ -132,9 +143,16 @@ button.danger {
   font-size: 1.125rem;
 }
 
+/*
+ * `min-height: 0` is what makes `overflow: auto` above it mean anything. A flex
+ * item defaults to `min-height: auto`, which refuses to shrink below its
+ * content — so without this the container is pushed taller than its parent and
+ * scrolls the document instead of itself.
+ */
 .content {
   display: flex;
   flex: 1;
+  min-height: 0;
   align-items: center;
   justify-content: center;
   padding: clamp(24px, 4vw, 54px);
