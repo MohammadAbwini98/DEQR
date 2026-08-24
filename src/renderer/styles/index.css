@@ -1388,3 +1388,17 @@ dd {
     transition: none;
   }
 }
+
+/*
+ * The line that says the stream has not stopped.
+ *
+ * It appears when the first pass runs out and the recovery tail takes over,
+ * and it matters because the alternative reads as a stuck screen: the QR is
+ * still cycling, but every number on the page has stopped climbing.
+ */
+.transfer-recovery-note {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  max-width: 60ch;
+}

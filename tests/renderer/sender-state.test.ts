@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   SENDER_EVENT,
@@ -287,5 +289,47 @@ describe('a finished pass can continue instead of only being abandoned', () => {
       const next = reduceSender({ state, epoch: 0 }, { type: SENDER_EVENT.RECOVERY_REQUESTED });
       expect(next.state, `${state} accepted a recovery request`).toBe(state);
     }
+  });
+});
+
+/**
+ * A pass that ends is not a transfer that ends.
+ *
+ * `SEGMENTS SENT: 1` on a real run: a one-segment file is about 170 frames, so
+ * the whole pass is over in roughly fifteen seconds - while someone is still
+ * lining up a phone. The sender then removed the only thing the camera was
+ * reading and waited for a button press from the person holding the camera.
+ *
+ * The link is one-way, so the sender can never learn that the receiver is
+ * finished. Stopping is therefore always a guess, and the wrong guess costs the
+ * whole transfer while the right one costs some redundant frames.
+ */
+describe('the sender keeps streaming rather than guessing that it is done', () => {
+  it('does not treat a finished pass as a finished transfer in the view', async () => {
+    const view = await readFile(
+      path.resolve(__dirname, '../../src/renderer/components/StreamTransferView.tsx'),
+      'utf8',
+    );
+    // The frame source rolls straight into the recovery tail and pulls the next
+    // frame, rather than reporting the pass finished and letting the QR unmount.
+    expect(view).toMatch(/beginRecovery\(sessionId\)/);
+    expect(view).toMatch(/onRecoveringRef\.current\(\)/);
+    // Finishing stays reachable, but only when recovery itself produced nothing.
+    const source = view.slice(view.indexOf('if (result.frame) return result.frame;'));
+    const recoveryFirst = source.indexOf('beginRecovery');
+    const finishedAfter = source.indexOf('finishedReported = true');
+    expect(recoveryFirst).toBeGreaterThan(-1);
+    expect(finishedAfter).toBeGreaterThan(recoveryFirst);
+  });
+
+  it('says on screen that the stream has not stopped', async () => {
+    const view = await readFile(
+      path.resolve(__dirname, '../../src/renderer/components/StreamTransferView.tsx'),
+      'utf8',
+    );
+    // A screen where the QR still cycles but every number has stopped climbing
+    // reads as stuck. It has to say otherwise.
+    expect(view).toContain('Sending recovery frames');
+    expect(view).toMatch(/Still sending/);
   });
 });

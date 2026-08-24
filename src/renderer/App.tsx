@@ -64,6 +64,13 @@ export default function App() {
   const [resumeRejection, setResumeRejection] = useState<string | null>(null);
 
   const [loopbackSession, setLoopbackSession] = useState<FileSelectionResult | null>(null);
+  /**
+   * True once the first pass ran out and the recovery tail took over.
+   *
+   * The stream does not stop there - it keeps showing fresh symbols - so this
+   * changes what the screen *says*, not what it does.
+   */
+  const [recovering, setRecovering] = useState(false);
   const [receiveScreen, setReceiveScreen] = useState<ReceiveScreen>('CAMERA');
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [receiveNotice, setReceiveNotice] = useState('');
@@ -145,6 +152,7 @@ export default function App() {
     // result is recognised as belonging to a session that no longer exists.
     const armedEpoch = machine.epoch + 1;
     try {
+      setRecovering(false);
       const result = await window.deqr.streamTransfer.select({
         resumeToken,
         transportProfileId: profileId,
@@ -441,6 +449,8 @@ export default function App() {
             onHold={() => dispatch({ type: SENDER_EVENT.HOLD })}
             onRelease={() => dispatch({ type: SENDER_EVENT.RELEASE })}
             onFinished={() => dispatch({ type: SENDER_EVENT.STREAM_FINISHED })}
+            onRecovering={() => setRecovering(true)}
+            recovering={recovering}
             onFailed={(code, message) => dispatch({
               type: SENDER_EVENT.STREAM_FAILED,
               fault: { kind: 'stream', code, message },

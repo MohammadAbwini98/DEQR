@@ -82,6 +82,10 @@ interface Props {
   onHold: () => void;
   onRelease: () => void;
   onFinished: () => void;
+  /** The pass ran out and the recovery tail took over. The QR never stops. */
+  onRecovering: () => void;
+  /** True once the tail is running, so the screen can say the stream continues. */
+  recovering: boolean;
   onFailed: (code: string, message: string) => void;
   onCancel: () => void;
 }
@@ -93,6 +97,8 @@ export default function StreamTransferView({
   onHold,
   onRelease,
   onFinished,
+  onRecovering,
+  recovering,
   onFailed,
   onCancel,
 }: Props) {
@@ -122,11 +128,13 @@ export default function StreamTransferView({
    * should ever rebuild it.
    */
   const onFinishedRef = useRef(onFinished);
+  const onRecoveringRef = useRef(onRecovering);
   const onFailedRef = useRef(onFailed);
   useEffect(() => {
     onFinishedRef.current = onFinished;
+    onRecoveringRef.current = onRecovering;
     onFailedRef.current = onFailed;
-  }, [onFinished, onFailed]);
+  }, [onFinished, onFailed, onRecovering]);
 
   const [progress, setProgress] = useState<StreamingProgressView | null>(null);
   const [stats, setStats] = useState<SchedulerStats | null>(null);
@@ -145,6 +153,7 @@ export default function StreamTransferView({
   useEffect(() => {
     let disposed = false;
     let finishedReported = false;
+    let recoveryStarted = false;
 
     const scheduler = new QrFrameScheduler(
       profile,
@@ -165,15 +174,41 @@ export default function StreamTransferView({
           // included, on every frame. The 500 ms poll below is the only thing
           // that updates the readout, which keeps React work off the same
           // thread that is encoding and painting QR symbols.
-          if (!result.frame && !finishedReported) {
+          if (result.frame) return result.frame;
+
+          // The pass is out of frames. **This is not the end of the transfer**,
+          // and treating it as one is what stranded a real receiver.
+          //
+          // A one-segment file is about 170 frames: the whole pass is over in
+          // fifteen seconds, while someone is still lining up a phone. The
+          // sender then removed the only thing the camera was reading and
+          // waited for a button press that the person holding the phone was in
+          // no position to give. There is no back channel, so the sender can
+          // never learn that the receiver is done - which means stopping is
+          // always a guess, and the wrong one costs the entire transfer.
+          //
+          // So the pass rolls straight into a recovery tail and keeps
+          // displaying fresh symbols until someone stops it. Frames the
+          // receiver already holds cost it one bit test to discard.
+          if (!recoveryStarted) {
+            recoveryStarted = true;
+            const started = await window.deqr.streamTransfer
+              .beginRecovery(sessionId)
+              .catch(() => null);
+            if (typeof started === 'number' && started > 0) {
+              if (!disposed) onRecoveringRef.current();
+              const next = await window.deqr.streamTransfer.nextFrame(sessionId);
+              if (next?.frame) return next.frame;
+            }
+          }
+
+          // Recovery could not start, or produced nothing. Only now is the
+          // sender genuinely out of things to show.
+          if (!finishedReported) {
             finishedReported = true;
-            // Reported from the source rather than from a progress poll: the
-            // null frame *is* the end of the pass, and waiting for the next
-            // 500 ms tick to notice would leave the last frame's screen time
-            // looking like a stall.
             if (!disposed) onFinishedRef.current();
           }
-          return result.frame;
+          return null;
         },
       },
       async (frame) => {
@@ -346,8 +381,21 @@ export default function StreamTransferView({
 
       <header className="transfer-header">
         <div>
-          <p className="eyebrow">{metadata.resumed ? 'Resuming transfer' : 'Sending'}</p>
+          <p className="eyebrow">
+            {recovering ? 'Sending recovery frames' : metadata.resumed ? 'Resuming transfer' : 'Sending'}
+          </p>
           <h1 id="transfer-heading" data-screen-heading tabIndex={-1}>Keep this QR code in view</h1>
+          {/* Said plainly, because the alternative is a screen that looks
+              stuck. The first pass is over and the sender is now cycling fresh
+              symbols for whatever the receiver missed - it will keep doing that
+              until someone stops it, which is the only safe behaviour on a link
+              with no way to hear back. */}
+          {recovering && (
+            <p className="transfer-recovery-note">
+              Every frame has been shown once. Still sending — keep scanning until the
+              receiving device says the file is verified.
+            </p>
+          )}
           <p className="transfer-file" title={metadata.filename}>{metadata.filename}</p>
         </div>
         <span className={`transfer-state ${held ? 'transfer-state--paused' : ''}`}>
