@@ -208,6 +208,23 @@ export const RECEIVER_POLICY = {
   dedupeCapacity: 4_096,
   /** Longest error text the worker will forward. Keeps one message bounded. */
   maxReasonChars: 200,
+  /**
+   * Silence, in ms, after which a transfer is called stalled rather than slow.
+   *
+   * Measured against the last *unique* frame, so this is not a frame interval:
+   * it is how long a receiver waits before concluding that nothing new is being
+   * transmitted. Twelve seconds is deliberately far above any legitimate gap —
+   * the slowest shipping profile puts a frame up ten times a second, and even a
+   * camera losing most of them re-acquires within a second or two — while being
+   * short enough that a person watching a phone notices the state change rather
+   * than the silence.
+   *
+   * The cost of getting this wrong is asymmetric and that is why it is generous.
+   * Too short reports a stall on a transfer that was about to recover, which is
+   * merely wrong on screen. Too long reproduces the defect it exists to fix, in
+   * which a receiver waits forever on a sender that has stopped.
+   */
+  stallAfterSilentMs: 12_000,
   /** Characters accepted in a resume code before it reaches the token parser. */
   maxResumeTokenChars: 128,
 

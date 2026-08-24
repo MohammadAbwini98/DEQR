@@ -444,3 +444,70 @@ describe('a released pipeline holds nothing', () => {
     expect(pipeline.submit(new Uint8Array(64)).reason).toBe('RELEASED');
   });
 });
+
+/**
+ * Telemetry that names a failure instead of describing it.
+ *
+ * The physical iPhone failure produced one sentence — "the transfer did not
+ * finish" — which is what four unrelated faults all look like. These counters
+ * exist so the next one is diagnosable from the receiver's own screen: mostly
+ * CRC failures is optical, mostly session mismatch is a second sender in the
+ * room, and nothing at all alongside no progress means frames are not reaching
+ * the decoder.
+ */
+describe('the receiver counts why it refused, not just how often', () => {
+  it('tallies refusals by reason', () => {
+    const pipeline = new ReceivePipeline();
+    // Not DEQR at all - a shop QR, a URL, a wifi code. Common while aiming.
+    for (let index = 0; index < 3; index += 1) {
+      pipeline.submit(Uint8Array.from([0x99, index, 0x11, 0x22, 0x33]));
+    }
+    const reasons = pipeline.progress().rejectionsByReason;
+    const total = Object.values(reasons).reduce((sum, count) => sum + count, 0);
+    expect(total).toBeGreaterThan(0);
+    expect(pipeline.progress().framesRejected).toBe(total);
+  });
+
+  it('bounds the reason map against an uncontrolled camera', () => {
+    // The keys come from this codebase's parsers, but the frames that produce
+    // them come from whatever is on a screen. A bound that is never reached
+    // costs nothing; its absence would be a slow leak.
+    const pipeline = new ReceivePipeline();
+    for (let index = 0; index < 500; index += 1) {
+      const frame = new Uint8Array(24);
+      frame[0] = 0x44;
+      frame[1] = 0x32;
+      frame[2] = index & 0xff;
+      pipeline.submit(frame);
+    }
+    expect(Object.keys(pipeline.progress().rejectionsByReason).length).toBeLessThanOrEqual(32);
+  });
+
+  it('carries counts and codes, never content', () => {
+    // The standing rule for this whole surface: the worker holds the file and
+    // the main thread holds a description of it. Telemetry must not become the
+    // exception that quietly moves bytes across that line.
+    const pipeline = new ReceivePipeline();
+    pipeline.submit(Uint8Array.from([0x44, 0x32, 0x02, 0x02, 0xde, 0xad, 0xbe, 0xef]));
+    const reasons = pipeline.progress().rejectionsByReason;
+    for (const key of Object.keys(reasons)) {
+      // Error codes only: upper snake case, nothing that could be a filename
+      // or a payload fragment.
+      expect(key).toMatch(/^[A-Z0-9_]+$/);
+      expect(typeof reasons[key]).toBe('number');
+    }
+  });
+
+  it('starts every counter clean on reset', () => {
+    const pipeline = new ReceivePipeline();
+    pipeline.submit(Uint8Array.from([0x99, 0x01, 0x02, 0x03, 0x04]));
+    expect(pipeline.progress().framesRejected).toBeGreaterThan(0);
+
+    pipeline.reset();
+    const after = pipeline.progress();
+    expect(after.rejectionsByReason).toEqual({});
+    expect(after.framesSystematic).toBe(0);
+    expect(after.framesRepair).toBe(0);
+    expect(after.lastUniqueFrameAtMs).toBe(0);
+  });
+});

@@ -15,7 +15,7 @@
  * state rather than stored beside it. A derived value cannot contradict its
  * source.
  *
- * The state names follow the program plan's receiver list. Two deliberate
+ * The state names follow the program plan's receiver list. Four deliberate
  * choices inside them:
  *
  * - `INTERRUPTED` is a real state rather than a silent cancel. Backgrounding
@@ -25,6 +25,16 @@
  * - There is no `PAUSED`. Resuming a partially received transfer needs the
  *   checkpoints Phase 07 defines, and a pause that silently discards progress
  *   would be a worse lie than not offering one.
+ * - `INCOMPLETE` and `RECOVERING` were added in Phase 13, after a physical
+ *   iPhone transfer hung. `RECEIVING` had no exit for the one thing that
+ *   actually happened — the sender running out of frames while the receiver was
+ *   still short — so the phone sat in "Receiving transfer" with a live camera
+ *   and no way forward. **A receiver that cannot say "incomplete" can only say
+ *   "receiving" forever.**
+ * - Those two states are the only non-terminal ones that keep a session alive
+ *   without the camera necessarily producing progress, which is why they are
+ *   absent from `SESSION_CLEARING_STATES`: a stall must not cost the segments
+ *   already written to disk.
  */
 
 import {
@@ -44,6 +54,31 @@ export const RECEIVER_STATE = {
   SCANNING: 'SCANNING',
   /** A session exists and frames are advancing it. */
   RECEIVING: 'RECEIVING',
+  /**
+   * Frames stopped arriving before every segment was recovered.
+   *
+   * The state Phase 13 exists to add. Without it `RECEIVING` had no exit but
+   * completion, failure, backgrounding or cancel — so a sender that finished
+   * its pass while the receiver was one symbol short left the phone showing
+   * "Receiving transfer" with a live camera, forever. That is the reported
+   * physical failure, and no amount of waiting resolved it because nothing was
+   * still being transmitted.
+   *
+   * Distinct from `INTERRUPTED` in the one way that matters: **the session and
+   * its bytes survive**. This is a transfer waiting for more frames, not an
+   * abandoned one, so it is absent from `SESSION_CLEARING_STATES` and does not
+   * bump the epoch.
+   */
+  INCOMPLETE: 'INCOMPLETE',
+  /**
+   * Unique frames are arriving again after a stall.
+   *
+   * Separate from `RECEIVING` so the screen can say the difference — the first
+   * pass is over and what is on the wire now is repair for the segments still
+   * missing. Recovery is otherwise identical, which is the point: the same
+   * store, the same checkpoint, the same segment bitmap.
+   */
+  RECOVERING: 'RECOVERING',
   /** Backgrounded, or the camera track ended under us. Session cleared. */
   INTERRUPTED: 'INTERRUPTED',
   /** Every unit recovered; integrity work is running. */
@@ -66,6 +101,17 @@ export const RECEIVER_EVENT = {
   CAMERA_READY: 'CAMERA_READY',
   CAMERA_FAILED: 'CAMERA_FAILED',
   FRAME_ACCEPTED: 'FRAME_ACCEPTED',
+  /**
+   * No *unique valid DEQR frame* has been accepted for the stall window.
+   *
+   * Deliberately not a camera event. The camera watchdog in `camera.ts` asks
+   * whether the video element is presenting frames, and during the reported
+   * failure it was — happily, at full rate, showing a sender that had stopped
+   * transmitting anything new. Liveness of the camera says nothing about
+   * liveness of the transfer, and conflating them is what let the receiver hang
+   * while every component reported itself healthy.
+   */
+  STALLED: 'STALLED',
   SESSION_COMPLETE: 'SESSION_COMPLETE',
   VERIFIED: 'VERIFIED',
   SESSION_FAILED: 'SESSION_FAILED',
@@ -165,6 +211,36 @@ const TRANSITIONS: Readonly<Record<ReceiverState, Partial<Record<ReceiverEventTy
   },
   [RECEIVER_STATE.RECEIVING]: {
     [RECEIVER_EVENT.SESSION_COMPLETE]: RECEIVER_STATE.VERIFYING,
+    // The exit that did not exist. Everything else here could already happen;
+    // a sender that simply stopped could not be represented at all.
+    [RECEIVER_EVENT.STALLED]: RECEIVER_STATE.INCOMPLETE,
+    [RECEIVER_EVENT.SESSION_FAILED]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.CAMERA_FAILED]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.WORKER_FATAL]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.BACKGROUNDED]: RECEIVER_STATE.INTERRUPTED,
+    [RECEIVER_EVENT.CANCELLED]: RECEIVER_STATE.CANCELLED,
+    [RECEIVER_EVENT.RESET]: RECEIVER_STATE.IDLE,
+  },
+  [RECEIVER_STATE.INCOMPLETE]: {
+    // A single new unique frame is the whole signal that recovery has begun.
+    // No handshake, no acknowledgement, nothing the one-way optical link
+    // cannot carry.
+    [RECEIVER_EVENT.FRAME_ACCEPTED]: RECEIVER_STATE.RECOVERING,
+    // A stalled receiver can still be one already-buffered segment away from
+    // done, so completion has to remain reachable from here.
+    [RECEIVER_EVENT.SESSION_COMPLETE]: RECEIVER_STATE.VERIFYING,
+    [RECEIVER_EVENT.SESSION_FAILED]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.CAMERA_FAILED]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.WORKER_FATAL]: RECEIVER_STATE.FAILED,
+    [RECEIVER_EVENT.BACKGROUNDED]: RECEIVER_STATE.INTERRUPTED,
+    [RECEIVER_EVENT.CANCELLED]: RECEIVER_STATE.CANCELLED,
+    [RECEIVER_EVENT.RESET]: RECEIVER_STATE.IDLE,
+  },
+  [RECEIVER_STATE.RECOVERING]: {
+    [RECEIVER_EVENT.SESSION_COMPLETE]: RECEIVER_STATE.VERIFYING,
+    // Recovery can stall exactly as the first pass can, and must fall back to
+    // the same place rather than to a second, subtly different dead end.
+    [RECEIVER_EVENT.STALLED]: RECEIVER_STATE.INCOMPLETE,
     [RECEIVER_EVENT.SESSION_FAILED]: RECEIVER_STATE.FAILED,
     [RECEIVER_EVENT.CAMERA_FAILED]: RECEIVER_STATE.FAILED,
     [RECEIVER_EVENT.WORKER_FATAL]: RECEIVER_STATE.FAILED,
@@ -193,6 +269,19 @@ const TRANSITIONS: Readonly<Record<ReceiverState, Partial<Record<ReceiverEventTy
   },
   [RECEIVER_STATE.EXPORTING]: {
     [RECEIVER_EVENT.EXPORT_SETTLED]: RECEIVER_STATE.IDLE,
+    /**
+     * An export that failed goes back to holding the verified file.
+     *
+     * The screen already tried to do this — it dispatches `VERIFIED` on the
+     * catch and tells the user "the verified file remains available" — but the
+     * event was not in this table, so `reduceReceiver` dropped it and the
+     * machine stayed in `EXPORTING`. The message was true and the state was
+     * wedged: `EXPORTING` offers no cancel and no save, so the only way out of
+     * a failed share was a reset, which discards the file the message had just
+     * promised. **A retryable export is the whole point of separating this
+     * state from `COMPLETE`**, and it was unreachable.
+     */
+    [RECEIVER_EVENT.VERIFIED]: RECEIVER_STATE.COMPLETE,
     [RECEIVER_EVENT.RESET]: RECEIVER_STATE.IDLE,
     // The share sheet hides the page on iOS. Treating that as an interruption
     // would cancel the export the user is in the middle of confirming, so the
@@ -234,6 +323,14 @@ const PHASE_OF: Readonly<Record<ReceiverState, TransferPhase>> = Object.freeze({
   // what READY means on the sender too.
   [RECEIVER_STATE.SCANNING]: TRANSFER_PHASE.READY,
   [RECEIVER_STATE.RECEIVING]: TRANSFER_PHASE.TRANSFERRING,
+  // Recovery is bytes moving, which is what TRANSFERRING means. The screen
+  // distinguishes the two; the shared vocabulary does not need to.
+  [RECEIVER_STATE.RECOVERING]: TRANSFER_PHASE.TRANSFERRING,
+  // `INTERRUPTED` is defined in the shared vocabulary as "stopped without being
+  // finished or abandoned, and resumable" - which is exactly a stalled
+  // transfer. Reusing it keeps both surfaces on one phase list rather than
+  // widening a contract the sender also implements.
+  [RECEIVER_STATE.INCOMPLETE]: TRANSFER_PHASE.INTERRUPTED,
   [RECEIVER_STATE.INTERRUPTED]: TRANSFER_PHASE.INTERRUPTED,
   [RECEIVER_STATE.VERIFYING]: TRANSFER_PHASE.VERIFYING,
   // The receiver's COMPLETE is a *verified* file and nothing weaker. It is the
@@ -263,9 +360,27 @@ const CAMERA_STATES: ReadonlySet<ReceiverState> = new Set<ReceiverState>([
   RECEIVER_STATE.CAMERA_WARMING,
   RECEIVER_STATE.SCANNING,
   RECEIVER_STATE.RECEIVING,
+  RECEIVER_STATE.RECOVERING,
+  // The camera stays on through `INCOMPLETE` deliberately. The action that
+  // ends a stall happens on the *other* device — someone starts the recovery
+  // tail or types a resume code — and there is no back channel to tell this
+  // one when. A receiver that stopped watching would miss the first recovery
+  // frames and need a manual restart to notice a transfer that had already
+  // resumed. The cost is a live camera while a transfer is idle, which is
+  // visible, bounded by the user, and preferable to silently missing the
+  // frames the stall was reported in order to obtain.
+  RECEIVER_STATE.INCOMPLETE,
 ]);
 
-/** States after which the session's buffers must not still be alive. */
+/**
+ * States after which the session's buffers must not still be alive.
+ *
+ * `INCOMPLETE` and `RECOVERING` are deliberately absent, and that absence is
+ * the mechanism behind "preserve partial state": these are the only two
+ * non-terminal states a stalled transfer can reach, and membership here is what
+ * would discard the segments already on the device and bump the epoch out from
+ * under the in-flight work. A stall is not an abandonment.
+ */
 const SESSION_CLEARING_STATES: ReadonlySet<ReceiverState> = new Set<ReceiverState>([
   RECEIVER_STATE.IDLE,
   RECEIVER_STATE.INTERRUPTED,
@@ -298,6 +413,10 @@ export function canCancel(state: ReceiverState): boolean {
     || state === RECEIVER_STATE.CAMERA_WARMING
     || state === RECEIVER_STATE.SCANNING
     || state === RECEIVER_STATE.RECEIVING
+    // A stalled transfer is the state a user is most likely to want to abandon,
+    // so cancel has to mean something from both of the new states.
+    || state === RECEIVER_STATE.INCOMPLETE
+    || state === RECEIVER_STATE.RECOVERING
     || state === RECEIVER_STATE.VERIFYING
   );
 }

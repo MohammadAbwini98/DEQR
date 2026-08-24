@@ -79,6 +79,8 @@ import {
   windowPlanFromManifest,
   type CompressionWindowPlan,
   type SegmentPlan,
+  V2_DATA_LAYOUT,
+  V2_FRAME_TYPE,
 } from '../../src/core/protocol-v2';
 import { RECEIVER_POLICY, manifestPolicyRefusal } from '../../src/core/receiver-policy';
 import { RECEIVE_ACCEPT, SegmentedReceiver } from '../../src/core/segmented-receiver';
@@ -91,7 +93,10 @@ import {
   parseFrame as parseV1Frame,
   sanitizeFilename,
 } from './protocol';
-import { encodeResumeToken } from '../../src/core/resume-token';
+import {
+  encodeTargetedResumeToken,
+  missingRangesFromBitmap,
+} from '../../src/core/resume-token';
 import type { CheckpointRejection, RetentionPolicy, StoragePreflight } from './opfs';
 import { ReceiverStorage, fixedProvisioner, type StorageProvisioner } from './receiver-storage';
 import { canDecompress, inflateWindowContainer } from './inflate-verify';
@@ -207,6 +212,14 @@ export interface ReceivePipelineOptions {
    * why, and it keeps `discard` as the answer in that case.
    */
   retention?: RetentionPolicy;
+  /**
+   * Wall clock, injected so a stall can be driven deterministically in a test.
+   *
+   * The same idiom `sweepStaleSessions` uses. Stall detection is a *timing*
+   * behaviour, and a timing behaviour that can only be observed by waiting is
+   * one nothing will ever assert.
+   */
+  now?: () => number;
   /**
    * Adopt working data left by an earlier run of the same transfer.
    *
@@ -348,6 +361,16 @@ export async function digestSegmentStore(
   return hasher.digest();
 }
 
+/**
+ * Distinct refusal reasons remembered at once.
+ *
+ * Comfortably above the number of codes the parsers can produce, so nothing is
+ * dropped in practice. It exists because the frames producing these codes come
+ * from a camera pointed at an uncontrolled screen, and a bound that is never
+ * reached costs nothing.
+ */
+const MAX_REJECTION_REASONS = 32;
+
 export class ReceivePipeline {
   private readonly dedupe: BoundedFingerprintSet;
   private readonly maxActiveSegments: number;
@@ -355,6 +378,7 @@ export class ReceivePipeline {
   private readonly retention: RetentionPolicy;
   private readonly resume: boolean;
   private readonly onVerifyProgress: ((progress: VerifyProgress) => void) | undefined;
+  private readonly now: () => number;
   private readonly yieldToEventLoop: () => Promise<void>;
 
   private store: SegmentStore | undefined;
@@ -377,6 +401,19 @@ export class ReceivePipeline {
   private cleanup: Promise<void> = Promise.resolve();
 
   private framesAccepted = 0;
+  /**
+   * When a frame the transfer had not already seen last arrived.
+   *
+   * Zero until the first one. The main thread turns this into a stall; the
+   * pipeline only records it, because the threshold is a UI policy and the
+   * pipeline has no business holding one.
+   */
+  private lastUniqueFrameAtMs = 0;
+  /** Refusals by reason. See `tallyRejection`. */
+  private readonly rejectionsByReason = new Map<string, number>();
+  /** Accepted frames that carried original bytes rather than repair algebra. */
+  private framesSystematic = 0;
+  private framesRepair = 0;
   private framesDuplicate = 0;
   private framesRejected = 0;
   private framesForeign = 0;
@@ -406,6 +443,7 @@ export class ReceivePipeline {
     this.resume = options.resume === true;
     this.onVerifyProgress = options.onVerifyProgress;
     this.yieldToEventLoop = options.yieldToEventLoop ?? defaultYield;
+    this.now = options.now ?? (() => Date.now());
     this.storage = options.store
       ? fixedProvisioner(options.store)
       : options.storage
@@ -493,6 +531,7 @@ export class ReceivePipeline {
     }
 
     this.framesAccepted += 1;
+    this.lastUniqueFrameAtMs = this.now();
     // v1 signals "every block recovered" by entering VERIFYING on its own.
     const completed = after.state === 'VERIFYING' && before.state !== 'VERIFYING';
     if (completed) this.complete = true;
@@ -567,6 +606,16 @@ export class ReceivePipeline {
       }
       default: {
         this.framesAccepted += 1;
+        this.lastUniqueFrameAtMs = this.now();
+        // Which kind of symbol advanced the segment. Read from the frame's own
+        // type byte rather than re-parsed: the accept path has already checked
+        // the CRC and the layout, so by here the byte is the sender's. The
+        // ratio of the two is how a link's real loss rate becomes visible from
+        // the receiving end - a transfer completing almost entirely on repair
+        // is one that is barely working, and on a progress bar it looks
+        // identical to one sailing through.
+        if (bytes[V2_DATA_LAYOUT.frameType] === V2_FRAME_TYPE.SOURCE) this.framesSystematic += 1;
+        else this.framesRepair += 1;
         // A store refusal is recorded by the sink, which cannot refuse through
         // its return value, and becomes terminal on the very next frame.
         if (this.sessionFault) return this.reject(this.sessionFault);
@@ -753,6 +802,10 @@ export class ReceivePipeline {
     const progress = emptyProgress();
     progress.protocol = this.protocol;
     progress.framesAccepted = this.framesAccepted;
+    progress.lastUniqueFrameAtMs = this.lastUniqueFrameAtMs;
+    progress.framesSystematic = this.framesSystematic;
+    progress.framesRepair = this.framesRepair;
+    progress.rejectionsByReason = Object.fromEntries(this.rejectionsByReason);
     progress.framesDuplicate = this.framesDuplicate;
     progress.framesRejected = this.framesRejected;
     progress.framesForeign = this.framesForeign;
@@ -863,12 +916,21 @@ export class ReceivePipeline {
     const receiver = this.v2;
     if (!manifest || !receiver) return undefined;
     try {
-      return encodeResumeToken({
+      // Names the gaps when they fit, and falls back to the restart point when
+      // they do not - the encoder decides, because which token is possible is a
+      // property of the bitmap rather than a preference.
+      //
+      // This matters most in exactly the case Phase 13 was opened for. After a
+      // completed pass the gaps are scattered rather than a prefix, and a token
+      // carrying only the lowest one would send the desktop back to resend
+      // almost everything the receiver already holds.
+      return encodeTargetedResumeToken({
         sessionId: manifest.sessionId,
         fileId: manifest.fileId,
         segmentCount: manifest.segmentCount,
         resumeFromSegment: receiver.firstMissingSegment(),
         sha256: manifest.sha256,
+        missing: missingRangesFromBitmap(receiver.committedBitmap(), manifest.segmentCount),
       });
     } catch {
       // A manifest whose fields cannot be encoded is one this session should
@@ -1119,6 +1181,10 @@ export class ReceivePipeline {
     this.dedupe.clear();
     this.protocol = 0;
     this.framesAccepted = 0;
+    this.lastUniqueFrameAtMs = 0;
+    this.framesSystematic = 0;
+    this.framesRepair = 0;
+    this.rejectionsByReason.clear();
     this.framesDuplicate = 0;
     this.framesRejected = 0;
     this.framesForeign = 0;
@@ -1154,6 +1220,33 @@ export class ReceivePipeline {
 
   private reject(reason: string): SubmitResult {
     this.framesRejected += 1;
+    this.tallyRejection(reason);
     return { outcome: FRAME_OUTCOME.REJECTED, reason, completed: false };
+  }
+
+  /**
+   * Counts *why* frames are being refused, not just how many.
+   *
+   * The diagnostic the physical failure needed and did not have. "The transfer
+   * did not finish" is the same sentence for four unrelated faults, and the
+   * counts tell them apart immediately: mostly `CRC_MISMATCH` is an optical
+   * problem — focus, glare, a symbol too small; mostly `SESSION_MISMATCH` is a
+   * second sender in the room; mostly `V1_FRAME` is a desktop on the previous
+   * release; and *no rejections at all* alongside no progress means frames are
+   * not reaching the decoder in the first place.
+   *
+   * Bounded by construction. The reasons are a closed set from this codebase's
+   * own parsers, but the map is capped anyway: the input that produces them is
+   * a camera pointed at whatever happens to be on a screen, and "our own enum"
+   * is an assumption about code rather than a property of it.
+   */
+  private tallyRejection(reason: string): void {
+    const existing = this.rejectionsByReason.get(reason);
+    if (existing !== undefined) {
+      this.rejectionsByReason.set(reason, existing + 1);
+      return;
+    }
+    if (this.rejectionsByReason.size >= MAX_REJECTION_REASONS) return;
+    this.rejectionsByReason.set(reason, 1);
   }
 }

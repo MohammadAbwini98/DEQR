@@ -73,9 +73,20 @@ describe('receiver: no success before verification', () => {
 
   it('shows the segment bar only while it means something', async () => {
     const app = withoutComments(await read('src/App.tsx'));
-    // RECEIVING and COMPLETE. Not VERIFYING - that has its own progress, over a
-    // different total - and not FAILED, where a bar implies partial success.
-    expect(app).toContain('(state === RECEIVER_STATE.RECEIVING || state === RECEIVER_STATE.COMPLETE)');
+    // The states where a count of recovered segments is a true and useful
+    // statement. RECEIVING and COMPLETE were the original two; Phase 13 added
+    // the two where it matters most, because a stalled receiver's first
+    // question is how much it actually got.
+    for (const state of ['RECEIVING', 'RECOVERING', 'INCOMPLETE', 'COMPLETE']) {
+      expect(app, `the segment bar is hidden during ${state}`)
+        .toContain(`state === RECEIVER_STATE.${state}`);
+    }
+    // Still not VERIFYING - that has its own progress, over a different total -
+    // and still not FAILED, where a bar implies partial success.
+    const guard = app.slice(app.indexOf('{transfer && ('));
+    const condition = guard.slice(0, guard.indexOf(') && <>') + 1);
+    expect(condition).not.toContain('RECEIVER_STATE.VERIFYING');
+    expect(condition).not.toContain('RECEIVER_STATE.FAILED');
   });
 });
 

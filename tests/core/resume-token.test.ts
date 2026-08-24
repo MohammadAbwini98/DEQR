@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import { crc32 } from '../../src/core/crc32';
 import {
+  MAX_RESUME_RANGES,
   RESUME_TOKEN_BYTES,
   RESUME_TOKEN_CHARS,
   RESUME_TOKEN_DIGEST_BYTES,
   RESUME_TOKEN_VERSION,
+  RESUME_TOKEN_VERSION_RANGES,
   decodeResumeToken,
+  decodeTargetedResumeToken,
   encodeResumeToken,
   encodeResumeTokenBytes,
+  encodeTargetedResumeToken,
+  missingRangesFromBitmap,
   resumeTokenMatchesDigest,
+  resumeTokenTargets,
 } from '../../src/core/resume-token';
 
 /**
@@ -260,3 +266,135 @@ function toBase32(bytes: Uint8Array): string {
   }
   return output;
 }
+
+/**
+ * Targeted resume: naming the gaps instead of a restart point.
+ *
+ * v1's "restart at the lowest missing segment" is exactly right after an
+ * interruption, where progress is a prefix. After a completed pass it is not:
+ * the gaps are wherever the camera lost frames, and restarting at the lowest
+ * means resending almost everything the receiver already has.
+ */
+describe('a token can name which segments are missing', () => {
+  const identity = {
+    sessionId: 0x1234_5678,
+    fileId: 0x9abc_def0,
+    segmentCount: 100,
+    resumeFromSegment: 1,
+    sha256: Uint8Array.from({ length: 32 }, (_unused, index) => index + 1),
+  };
+
+  function bitmapWithout(segmentCount: number, missing: number[]): Uint8Array {
+    const bits = new Uint8Array((segmentCount + 7) >> 3);
+    for (let index = 0; index < segmentCount; index += 1) {
+      if (!missing.includes(index)) bits[index >> 3] |= 1 << (index & 7);
+    }
+    return bits;
+  }
+
+  it('reads gaps out of a bitmap as runs', () => {
+    const bits = bitmapWithout(20, [1, 2, 3, 11, 19]);
+    expect(missingRangesFromBitmap(bits, 20)).toEqual([
+      { start: 1, length: 3 },
+      { start: 11, length: 1 },
+      { start: 19, length: 1 },
+    ]);
+  });
+
+  it('round-trips scattered gaps a v1 token could not express', () => {
+    // The physical case: two gaps ninety segments apart. v1 would restart at 1
+    // and resend ninety-one segments; this names two.
+    const missing = [{ start: 1, length: 1 }, { start: 91, length: 1 }];
+    const token = encodeTargetedResumeToken({ ...identity, missing });
+    const decoded = decodeTargetedResumeToken(token);
+
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value.version).toBe(RESUME_TOKEN_VERSION_RANGES);
+    expect(decoded.value.missing).toEqual(missing);
+    expect(resumeTokenTargets(decoded.value)).toEqual([1, 91]);
+  });
+
+  it('keeps identity checkable exactly as v1 does', () => {
+    const token = encodeTargetedResumeToken({
+      ...identity, missing: [{ start: 4, length: 2 }],
+    });
+    const decoded = decodeTargetedResumeToken(token);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+
+    expect(decoded.value.sessionId).toBe(identity.sessionId);
+    expect(decoded.value.fileId).toBe(identity.fileId);
+    expect(resumeTokenMatchesDigest(decoded.value, identity.sha256)).toBe(true);
+    // A different file, same session and segmentation: refused on the digest.
+    const otherFile = Uint8Array.from({ length: 32 }, () => 0xaa);
+    expect(resumeTokenMatchesDigest(decoded.value, otherFile)).toBe(false);
+  });
+
+  it('falls back to v1 rather than describing the gaps badly', () => {
+    // More gaps than the blob holds. The fallback is conservative in the
+    // direction v1 always was - resend too much - so fragmentation costs time
+    // and never correctness.
+    const tooMany = Array.from({ length: MAX_RESUME_RANGES + 3 }, (_unused, index) => ({
+      start: index * 2, length: 1,
+    }));
+    const token = encodeTargetedResumeToken({ ...identity, missing: tooMany });
+    const clean = token.replace(/-/g, '');
+    expect(clean.length).toBe(RESUME_TOKEN_CHARS);
+
+    const decoded = decodeTargetedResumeToken(token);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value.missing).toBeUndefined();
+    // And the fallback still recovers everything that could be missing.
+    expect(resumeTokenTargets(decoded.value)[0]).toBe(identity.resumeFromSegment);
+  });
+
+  it('still reads a v1 token', () => {
+    const v1 = encodeResumeToken(identity);
+    const decoded = decodeTargetedResumeToken(v1);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value.version).toBe(RESUME_TOKEN_VERSION);
+    expect(decoded.value.missing).toBeUndefined();
+  });
+
+  it('refuses a mistyped character as a typo, not a version problem', () => {
+    const token = encodeTargetedResumeToken({ ...identity, missing: [{ start: 2, length: 1 }] }, false);
+    const flipped = `${token.slice(0, 10)}${token[10] === 'A' ? 'B' : 'A'}${token.slice(11)}`;
+    expect(decodeTargetedResumeToken(flipped)).toEqual({ ok: false, code: 'RESUME_TOKEN_CHECKSUM' });
+  });
+
+  it('refuses a truncated token', () => {
+    const token = encodeTargetedResumeToken({ ...identity, missing: [{ start: 2, length: 1 }] }, false);
+    expect(decodeTargetedResumeToken(token.slice(0, 60))).toEqual({ ok: false, code: 'RESUME_TOKEN_LENGTH' });
+  });
+
+  it('refuses gaps that run past the end of the file', () => {
+    // Hand-built rather than encoded, because the encoder would not produce it.
+    // A token is text a person typed, and this one decides what a sender spends
+    // hours transmitting.
+    const bad = encodeTargetedResumeToken({
+      ...identity, segmentCount: 100, missing: [{ start: 98, length: 2 }],
+    }, false);
+    expect(decodeTargetedResumeToken(bad).ok).toBe(true);
+
+    const overrun = encodeTargetedResumeToken({
+      ...identity, segmentCount: 3, resumeFromSegment: 1, missing: [{ start: 1, length: 2 }],
+    }, false);
+    const decoded = decodeTargetedResumeToken(overrun);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    for (const target of resumeTokenTargets(decoded.value)) {
+      expect(target).toBeLessThan(3);
+    }
+  });
+
+  it('names no gaps when nothing is missing', () => {
+    const complete = bitmapWithout(16, []);
+    expect(missingRangesFromBitmap(complete, 16)).toEqual([]);
+    // And an empty set is not a licence to emit a v2 token claiming nothing.
+    const token = encodeTargetedResumeToken({ ...identity, missing: [] });
+    expect(token.replace(/-/g, '').length).toBe(RESUME_TOKEN_CHARS);
+  });
+});

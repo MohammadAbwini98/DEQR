@@ -12,7 +12,12 @@ import {
   type DeqrV2Manifest,
   type SegmentPlan,
 } from '../../src/core/protocol-v2';
-import { decodeResumeToken } from '../../src/core/resume-token';
+import {
+  RESUME_TOKEN_CHARS,
+  decodeResumeToken,
+  decodeTargetedResumeToken,
+  resumeTokenTargets,
+} from '../../src/core/resume-token';
 import { SegmentEncoder } from '../../src/core/segment-encoder';
 import { digestToHex } from '../../src/core/sha256-stream';
 import {
@@ -644,7 +649,7 @@ describe('the resume token describes the session it came from', () => {
       for (const frame of at.segmentFrames(index)) pipeline.submit(frame);
     }
 
-    const decoded = decodeResumeToken(pipeline.resumeToken()!);
+    const decoded = decodeTargetedResumeToken(pipeline.resumeToken()!);
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
     // 2, not 4. Restarting at 4 would skip a segment nothing holds; restarting
@@ -654,6 +659,36 @@ describe('the resume token describes the session it came from', () => {
     expect(decoded.value.fileId).toBe(at.manifest.fileId);
     expect(decoded.value.segmentCount).toBe(at.plan.segmentCount);
     expect([...decoded.value.digestPrefix]).toEqual([...at.manifest.sha256.subarray(0, 5)]);
+
+    // And since Phase 13 it does better than name a restart point. Segments 0,
+    // 1 and 3 arrived, so the gaps are 2 and everything from 4 on - two runs,
+    // which v1 could only describe as "restart at 2 and resend the rest".
+    expect(decoded.value.missing).toEqual([{ start: 2, length: 1 }, { start: 4, length: 2 }]);
+    // Segment 3 is not in the list, so the sender will not spend time on it.
+    expect(resumeTokenTargets(decoded.value)).toEqual([2, 4, 5]);
+  });
+
+  it('stays a forty-character v1 code when the gaps are just a tail', async () => {
+    // The interruption case, which is what v1 was written for: a receiver that
+    // stopped has one run of missing segments reaching the end of the file, and
+    // "restart from the lowest" describes it exactly. Spending sixty-four
+    // characters to say the same thing would make every ordinary resume harder
+    // to read aloud for no gain.
+    const { storage } = fakeEnvironment();
+    const at = await fixture();
+    const pipeline = pipelineOver(storage, { resume: true });
+
+    pipeline.submit(at.manifestFrame);
+    await pipeline.whenStorageReady();
+    for (const frame of at.segmentFrames(0)) pipeline.submit(frame);
+
+    const token = pipeline.resumeToken()!;
+    expect(token.replace(/-/g, '').length).toBe(RESUME_TOKEN_CHARS);
+    const decoded = decodeTargetedResumeToken(token);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.value.missing).toBeUndefined();
+    expect(decoded.value.resumeFromSegment).toBe(1);
   });
 
   it('says the segment count when nothing is missing', async () => {

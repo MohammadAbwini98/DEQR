@@ -31,6 +31,7 @@ import {
   summarizeInterruption,
   summarizeStorage,
   summarizeTransfer,
+  transferHasStalled,
   transferSizeLine,
   type VerifyView,
 } from './receiver-view-model';
@@ -38,6 +39,14 @@ import { emptyProgress, type ReceiveProgress } from './worker-protocol';
 
 const VERSION = 'web-pwa-0.3.0';
 const TELEMETRY_INTERVAL_MS = 500;
+/**
+ * How often the stall watcher looks, in ms.
+ *
+ * Far finer than the stall threshold itself, so the reported stall lands within
+ * a second of the real one. Cheap enough to be uninteresting: it compares two
+ * numbers and does nothing else.
+ */
+const STALL_CHECK_INTERVAL_MS = 1_000;
 
 /**
  * The receive screen, driven by exactly one state.
@@ -74,6 +83,22 @@ export default function App() {
   const camera = useRef<CameraController | undefined>(undefined);
   const verified = useRef<VerifiedTransfer | undefined>(undefined);
   const mounted = useRef(true);
+  /**
+   * The last unique-frame stamp this screen has seen.
+   *
+   * Held in a ref rather than derived from `progress`, because the comparison
+   * has to happen against the *previous* snapshot and a render can coalesce two
+   * of them.
+   */
+  const lastUniqueAt = useRef(0);
+  /**
+   * The newest progress snapshot, readable from a timer.
+   *
+   * The stall watcher runs on an interval keyed only on the state. Without this
+   * it would close over the `progress` of the render that created it and
+   * conclude, correctly but uselessly, that nothing had arrived since.
+   */
+  const progressRef = useRef<ReceiveProgress>(emptyProgress());
 
   const [machine, setMachine] = useState(initialReceiverState());
   const [screen, setScreen] = useState<'HOME' | 'RECEIVE'>('HOME');
@@ -106,6 +131,7 @@ export default function App() {
         onProgress: (next) => {
           if (!mounted.current) return;
           setProgress(next);
+          progressRef.current = next;
           if (next.fault) {
             dispatch({
               type: RECEIVER_EVENT.SESSION_FAILED,
@@ -120,7 +146,21 @@ export default function App() {
             });
             return;
           }
+          // Two different questions, and Phase 13 needs both answered.
+          //
+          // A completed *unit* is what promotes SCANNING to RECEIVING: it means
+          // the session is genuinely reconstructing rather than merely parsing.
+          //
+          // A newer unique *frame* is what ends a stall. It has to be the finer
+          // signal, because a segment can take minutes and INCOMPLETE must
+          // return to RECOVERING on the first sign of life rather than on the
+          // first completed segment - which, on a recovery tail sent for one
+          // missing segment, might be the last thing that ever happens.
           if (next.unitsRecovered > 0) dispatch({ type: RECEIVER_EVENT.FRAME_ACCEPTED });
+          else if (next.lastUniqueFrameAtMs > lastUniqueAt.current) {
+            dispatch({ type: RECEIVER_EVENT.FRAME_ACCEPTED });
+          }
+          lastUniqueAt.current = next.lastUniqueFrameAtMs;
         },
         onComplete: () => dispatch({ type: RECEIVER_EVENT.SESSION_COMPLETE }),
         // The event Phase 08 emitted and nothing drew. Without it the receiver
@@ -302,6 +342,40 @@ export default function App() {
     };
     tick();
     const handle = window.setInterval(tick, TELEMETRY_INTERVAL_MS);
+    return () => window.clearInterval(handle);
+  }, [state]);
+
+  /* ------------------------------------------------------------------ stalls */
+
+  /**
+   * Watches the transfer's own liveness, which is not the camera's.
+   *
+   * This is the loop the physical failure needed and did not have. The camera
+   * watchdog in `camera.ts` asks whether the video element is presenting
+   * frames; during the failure it was, at full rate, aimed at a desktop that
+   * had finished transmitting. Every component reported itself healthy and the
+   * transfer was dead.
+   *
+   * A timer rather than a check inside `onProgress`, because the failure is the
+   * *absence* of progress: a receiver that has stopped being fed stops getting
+   * progress callbacks, so the one place that could notice is the only place
+   * that never runs.
+   */
+  useEffect(() => {
+    if (state !== RECEIVER_STATE.RECEIVING && state !== RECEIVER_STATE.RECOVERING) return;
+
+    const check = () => {
+      if (!mounted.current) return;
+      if (transferHasStalled({
+        sessionActive: progressRef.current.sessionActive,
+        complete: progressRef.current.complete,
+        lastUniqueFrameAtMs: progressRef.current.lastUniqueFrameAtMs,
+        nowMs: Date.now(),
+      })) {
+        dispatch({ type: RECEIVER_EVENT.STALLED });
+      }
+    };
+    const handle = window.setInterval(check, STALL_CHECK_INTERVAL_MS);
     return () => window.clearInterval(handle);
   }, [state]);
 
@@ -588,7 +662,10 @@ export default function App() {
 
         {rejection && <p className="checkpoint-note">{rejection}</p>}
 
-        {transfer && (state === RECEIVER_STATE.RECEIVING || state === RECEIVER_STATE.COMPLETE) && <>
+        {transfer && (state === RECEIVER_STATE.RECEIVING
+          || state === RECEIVER_STATE.RECOVERING
+          || state === RECEIVER_STATE.INCOMPLETE
+          || state === RECEIVER_STATE.COMPLETE) && <>
           <div className="progress-row">
             <div className="progress" role="progressbar" aria-label="Segments recovered" aria-valuemin={0} aria-valuemax={transfer.segmentsTotal || 1} aria-valuenow={transfer.segmentsRecovered} aria-valuetext={percent}><span style={{ transform: 'scaleX(' + Math.min(1, transfer.fraction) + ')' }} /></div>
             <strong>{percent}</strong>
@@ -695,7 +772,12 @@ function cameraStatusCopy(state: ReceiverState, scannerFailed: boolean): string 
   switch (state) {
     case RECEIVER_STATE.SCANNING:
     case RECEIVER_STATE.RECEIVING:
+    case RECEIVER_STATE.RECOVERING:
       return 'Camera active';
+    // Still watching, deliberately: the act that ends a stall happens on the
+    // sending device and there is no back channel to announce it.
+    case RECEIVER_STATE.INCOMPLETE:
+      return 'Camera active, waiting for frames';
     case RECEIVER_STATE.PREFLIGHT:
     case RECEIVER_STATE.CAMERA_WARMING:
       return 'Preparing camera';
@@ -778,6 +860,14 @@ function liveStatusCopy(
       return 'Preparing camera access.';
     case RECEIVER_STATE.RECEIVING:
       return 'Receiving validated DEQR frames.';
+    case RECEIVER_STATE.RECOVERING:
+      return 'Receiving recovery frames for the segments still missing.';
+    case RECEIVER_STATE.INCOMPLETE:
+      // Says what happened, what survived, and what to do - in that order.
+      // "Incomplete" on its own reads as failure, and the whole point of this
+      // state is that nothing has been lost and the transfer can still finish.
+      return 'The sender stopped before every part arrived. What was received is kept. '
+        + 'On the sending device, choose Send recovery frames or enter the code below.';
     case RECEIVER_STATE.SCANNING:
       return 'Camera active and ready to scan.';
     default:

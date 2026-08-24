@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CameraController, activeCameraCount, type CaptureTarget } from '../src/camera';
@@ -295,5 +298,46 @@ describe('the camera lifecycle is explicit about how it went wrong', () => {
     second.dispose();
     first.dispose();
     expect(activeCameraCount()).toBe(0);
+  });
+});
+
+/**
+ * The guide a person aims with, and the pixels the decoder actually reads.
+ *
+ * These are two numbers in two files — an `0.86` in the capture loop and an
+ * `86%` in the stylesheet — and nothing but this test connects them. If they
+ * drift apart, someone carefully centring a QR inside the on-screen guide is
+ * aiming at a region the decoder is not looking at, and the failure looks
+ * exactly like a camera that cannot read the code.
+ */
+describe('the scan guide and the decode region are the same region', () => {
+  const root = path.resolve(__dirname, '..');
+
+  it('crops to the same fraction the guide draws', async () => {
+    const camera = await readFile(path.join(root, 'src/camera.ts'), 'utf8');
+    const styles = await readFile(path.join(root, 'src/styles.css'), 'utf8');
+
+    const cropped = camera.match(/Math\.min\(sourceWidth, sourceHeight\) \* (0\.\d+)/);
+    expect(cropped, 'the capture loop no longer crops a centre square').not.toBeNull();
+
+    const guide = styles.match(/\.scan-guide\s*\{[^}]*?width:\s*(\d+)%/s);
+    expect(guide, 'the scan guide no longer declares a width').not.toBeNull();
+    if (!cropped || !guide) return;
+
+    expect(Number(guide[1]) / 100).toBeCloseTo(Number(cropped[1]), 5);
+  });
+
+  it('draws the guide as a centred square, which is what the crop assumes', () => {
+    // The crop takes `min(width, height)` about the centre. A guide that was
+    // not square, or not centred, would describe a different region however
+    // well the percentages matched.
+    const styles = readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+    const guide = styles.match(/\.scan-guide\s*\{([^}]*)\}/s);
+    expect(guide).not.toBeNull();
+    if (!guide) return;
+    expect(guide[1]).toMatch(/aspect-ratio:\s*1/);
+    expect(guide[1]).toMatch(/top:\s*50%/);
+    expect(guide[1]).toMatch(/left:\s*50%/);
+    expect(guide[1]).toMatch(/translate\(-50%, -50%\)/);
   });
 });

@@ -48,8 +48,17 @@ import { isReceiverSessionFile, isReceiverSessionPath } from './opfs';
  * worth. The numbers were already computed; they were discarded before reaching
  * a screen, so a receiver could refuse a transfer for lack of room without ever
  * saying how much room it wanted.
+ *
+ * 6: Phase 13. `progress` carries `lastUniqueFrameAtMs`, the systematic/repair
+ * split, and refusal counts by reason, so
+ * the main thread can tell a transfer that is advancing from one that is merely
+ * being looked at. Before this the only liveness signal was the camera
+ * watchdog, which asks whether the video element is presenting frames - and
+ * during the physical failure it was, at full rate, pointed at a sender that
+ * had stopped transmitting. The receiver hung in `RECEIVING` because nothing in
+ * the contract could express "frames are arriving and none of them are new".
  */
-export const RECEIVE_WORKER_PROTOCOL = 5;
+export const RECEIVE_WORKER_PROTOCOL = 6;
 
 /** Longest error text the worker will forward. Keeps one message bounded. */
 export const MAX_REASON_CHARS = RECEIVER_POLICY.maxReasonChars;
@@ -142,6 +151,46 @@ export interface ReceiveProgress {
   unitsRecovered: number;
   unitsTotal: number;
   framesAccepted: number;
+  /**
+   * `Date.now()` when `framesAccepted` last increased, or 0 if it never has.
+   *
+   * The clock the stall detector reads. `framesAccepted` is already the count
+   * of *unique* valid frames — duplicates are rejected by the fingerprint cache
+   * before they reach a session — so this stamps the last moment the transfer
+   * was fed something it had not already seen.
+   *
+   * A wall-clock stamp rather than a duration on purpose: the worker and the
+   * main thread sample at different rates, and a duration computed in here
+   * would be stale by an unknown amount by the time a screen read it.
+   *
+   * Known limit, stated rather than hidden: a sender emitting *distinct* repair
+   * symbols for segments the receiver has already completed would keep this
+   * stamp fresh while making no progress. That is designed out on the sending
+   * side — the recovery tail targets incomplete segments — rather than papered
+   * over here, because the alternative is a stall threshold longer than a whole
+   * segment's transmission time, which would not detect the failure this
+   * exists for.
+   */
+  lastUniqueFrameAtMs: number;
+  /**
+   * Accepted frames that carried original bytes, and those that carried repair.
+   *
+   * The ratio is how a link's real loss rate becomes visible from the receiving
+   * end. A transfer completing almost entirely on repair symbols is one that is
+   * barely working, and it looks identical on a progress bar to one sailing
+   * through on systematic frames alone.
+   */
+  framesSystematic: number;
+  framesRepair: number;
+  /**
+   * Why frames were refused, counted by reason.
+   *
+   * Counts, never content. "The transfer did not finish" describes four
+   * unrelated faults; these tell them apart. Bounded at the pipeline, and the
+   * keys are error codes from this codebase's own parsers — no filename, no
+   * payload byte, nothing a camera saw.
+   */
+  rejectionsByReason: Record<string, number>;
   framesDuplicate: number;
   framesRejected: number;
   framesForeign: number;
@@ -253,6 +302,10 @@ export function emptyProgress(): ReceiveProgress {
     unitsRecovered: 0,
     unitsTotal: 0,
     framesAccepted: 0,
+    lastUniqueFrameAtMs: 0,
+    framesSystematic: 0,
+    framesRepair: 0,
+    rejectionsByReason: {},
     framesDuplicate: 0,
     framesRejected: 0,
     framesForeign: 0,

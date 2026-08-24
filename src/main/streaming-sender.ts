@@ -59,6 +59,9 @@ import {
 } from '../core/transport-profiles';
 import {
   decodeResumeToken,
+  decodeTargetedResumeToken,
+  resumeTokenTargets,
+  type TargetedResumeToken,
   encodeResumeToken,
   resumeTokenMatchesDigest,
   type ResumeToken,
@@ -403,6 +406,18 @@ export interface SenderProgress {
   manifestFramesEmitted: number;
   sourceSymbolsEmitted: number;
   repairSymbolsEmitted: number;
+  /**
+   * Repair symbols emitted by the recovery tail, counted apart from the pass.
+   *
+   * Separate because they answer different questions. The pass's repair is a
+   * budget spent whether or not anything needed it; these were sent because a
+   * receiver said, or was assumed, to be short. A recovery count that keeps
+   * climbing with no completion is the signal that the link, not the coding, is
+   * the problem.
+   */
+  recoverySymbolsEmitted: number;
+  /** True while the recovery tail is producing. Never true during the first pass. */
+  recovering: boolean;
   complete: boolean;
   /** First segment this pass emits. Non-zero only for a resumed transfer. */
   resumeFromSegment: number;
@@ -427,6 +442,36 @@ export class StreamingTransferSession {
   private symbolCursor = 0;
   private framesProduced = 0;
   private done = false;
+  /**
+   * Which pass this session is emitting.
+   *
+   * `pass` is the systematic-plus-budgeted-repair walk every transfer starts
+   * with. `recovery` is what Phase 13 added, and it exists because the previous
+   * behaviour had no answer to the commonest real failure: the pass ends, the
+   * receiver is short by some symbols, and there is nothing left to send. The
+   * sender simply stopped, and a receiver that had missed anything stayed
+   * incomplete for good.
+   */
+  private phase: 'pass' | 'recovery' = 'pass';
+  /** Segments recovery is generating for. Round-robin, so all advance together. */
+  private recoveryTargets: number[] = [];
+  private recoveryCursor = 0;
+  /** Symbols left in the current target's batch. See `produceRecoverySymbol`. */
+  private recoveryBatchRemaining = 0;
+  /** Source symbols in the batch being emitted, so its progress is derivable. */
+  private recoveryBatchSource = 0;
+  /** Segments a resume token said were missing, if one opened this session. */
+  private resumeTargets: number[] | null = null;
+  /**
+   * Next repair symbol id to emit per segment.
+   *
+   * The reason recovery is useful rather than noise. Symbol ids seed the repair
+   * generator, so continuing to climb produces symbols the receiver has never
+   * seen; restarting at the pass's first repair id would retransmit frames it
+   * has already rejected as duplicates. "Do not endlessly repeat identical
+   * repair frames" is enforced by this map rather than hoped for.
+   */
+  private readonly recoveryNextSymbolId = new Map<number, number>();
   private disposed = false;
 
   private readonly counters = {
@@ -434,6 +479,7 @@ export class StreamingTransferSession {
     manifestFramesEmitted: 0,
     sourceSymbolsEmitted: 0,
     repairSymbolsEmitted: 0,
+    recoverySymbolsEmitted: 0,
     bytesOnTheWire: 0n,
     transportBytesCovered: 0n,
     segmentsCompleted: 0,
@@ -656,7 +702,7 @@ export class StreamingTransferSession {
         resumed: resume !== null,
       };
 
-      return new StreamingTransferSession(
+      const session = new StreamingTransferSession(
         handle,
         openStat,
         config,
@@ -667,6 +713,11 @@ export class StreamingTransferSession {
         signal,
         encoder,
       );
+      // A v2 token named the gaps. Remembering them is what lets a recovery
+      // pass started later default to *those* segments rather than to the whole
+      // file, without the caller having to carry the token around.
+      if (resume) session.rememberResumeTargets(resumeTokenTargets(resume));
+      return session;
     } catch (error) {
       await handle.close().catch(() => undefined);
       throw error;
@@ -723,6 +774,8 @@ export class StreamingTransferSession {
       manifestFramesEmitted: this.counters.manifestFramesEmitted,
       sourceSymbolsEmitted: this.counters.sourceSymbolsEmitted,
       repairSymbolsEmitted: this.counters.repairSymbolsEmitted,
+      recoverySymbolsEmitted: this.counters.recoverySymbolsEmitted,
+      recovering: this.isRecovering,
       complete: this.done && this.queue.length === 0,
       resumeFromSegment: this.preflight.resumeFromSegment,
     };
@@ -774,12 +827,16 @@ export class StreamingTransferSession {
 
     // The first frame of a transfer is a manifest, and one recurs on the
     // configured interval. A receiver that starts scanning late has to be able
-    // to acquire the session without having seen its beginning.
+    // to acquire the session without having seen its beginning. The cadence is
+    // kept through recovery too: someone who starts scanning *during* a
+    // recovery pass needs the session description just as much.
     if (this.framesProduced % this.config.manifestIntervalFrames === 0) {
       this.framesProduced += 1;
       this.counters.manifestFramesEmitted += 1;
       return this.manifestFrameBytes;
     }
+
+    if (this.phase === 'recovery') return this.produceRecoverySymbol();
 
     if (!(await this.advanceToPendingSymbol())) return null;
 
@@ -821,6 +878,164 @@ export class StreamingTransferSession {
    * Ensures a symbol is pending, advancing segments as they are exhausted.
    * Returns false when the whole pass is complete.
    */
+  /**
+   * Starts a recovery pass for segments the receiver is still missing.
+   *
+   * Explicit rather than automatic, and that is the point. The pass ending is
+   * a real event a person should see — "every frame has been displayed" is
+   * true and worth saying — and continuing to emit repair forever by default
+   * would make a finished transfer indistinguishable from a stuck one. So the
+   * sender stops, says so, and recovers when asked.
+   *
+   * With no targets it recovers every segment, which is the honest default when
+   * nothing has told it which are missing: the optical link is one-way, so
+   * absent a resume code the sender cannot know. `beginRecovery` with targets
+   * is what a resume code turns into, and it is strictly better — see the
+   * targeted-resume path.
+   *
+   * Returns how many segments the tail will generate for.
+   */
+  beginRecovery(targetSegments?: readonly number[]): number {
+    if (this.disposed) throw new DeqrError(ErrorCode.INVALID_TRANSFER_STATE, 'Transfer session is closed.');
+
+    const all = () => Array.from({ length: this.plan.segmentCount }, (_unused, index) => index);
+    // Order of preference when the caller names nothing: what a resume token
+    // said is missing, then everything. The middle option does not exist -
+    // there is no third source of truth about what a receiver holds.
+    const fallback = () => this.resumeTargets ?? all();
+    const requested = targetSegments === undefined
+      ? fallback()
+      : [...new Set(targetSegments)]
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < this.plan.segmentCount)
+        .sort((left, right) => left - right);
+
+    // An empty or wholly out-of-range request means the caller believes nothing
+    // is missing. Recovering everything on that basis would be the opposite of
+    // targeted, so the tail stays closed and says it generated for nothing.
+    this.recoveryTargets = requested;
+    // Cursor sits one before the first target and the batch is empty, so the
+    // first call advances onto target zero rather than skipping it.
+    this.recoveryCursor = requested.length - 1;
+    this.recoveryBatchRemaining = 0;
+    if (requested.length === 0) return 0;
+
+    this.phase = 'recovery';
+    this.done = false;
+    return requested.length;
+  }
+
+  /**
+   * Records what a resume token said this receiver still needs.
+   *
+   * Called once at open. Kept separate from `beginRecovery` so the token is
+   * validated where every other identity check happens — before a session
+   * exists — rather than at the moment someone presses a recovery button.
+   */
+  rememberResumeTargets(targets: readonly number[]): void {
+    const bounded = [...new Set(targets)]
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < this.plan.segmentCount)
+      .sort((left, right) => left - right);
+    this.resumeTargets = bounded.length > 0 ? bounded : null;
+  }
+
+  /** Whether a recovery pass is currently producing frames. */
+  get isRecovering(): boolean {
+    return this.phase === 'recovery' && this.recoveryTargets.length > 0;
+  }
+
+  /**
+   * One fresh repair symbol for the segment recovery is currently working on.
+   *
+   * **In batches, not round-robin, and the receiver's memory bound is why.** It
+   * keeps at most `maxActiveSegments` decoders alive — two by default — and
+   * evicting a decoder discards its partial progress, because holding partial
+   * state for every segment is exactly the unbounded growth segmentation
+   * exists to prevent. Interleaving one symbol per target across four missing
+   * segments therefore makes *negative* progress: every symbol arrives for a
+   * segment whose decoder was evicted two symbols ago and recreated empty.
+   *
+   * This was measured, not reasoned about. The first version of this tail was
+   * round-robin, and a receiver missing four segments never completed one.
+   *
+   * So a batch is a whole segment's worth plus the configured overhead, which
+   * is enough for a decoder that starts empty to finish before the next target
+   * displaces it. The cost is that a receiver missing one symbol from segment 3
+   * waits through segment 0's batch, which is bounded and visible; the
+   * alternative is a tail that transmits forever and completes nothing.
+   */
+  private async produceRecoverySymbol(): Promise<Uint8Array | null> {
+    if (this.recoveryTargets.length === 0) {
+      this.done = true;
+      return null;
+    }
+
+    if (this.recoveryBatchRemaining <= 0) {
+      this.recoveryCursor = (this.recoveryCursor + 1) % this.recoveryTargets.length;
+      const next = this.recoveryTargets[this.recoveryCursor];
+      const source = sourceSymbolCountForSegment(this.plan, next);
+      this.recoveryBatchRemaining = source + Math.ceil(source * this.config.repairOverheadRatio);
+      this.recoveryBatchSource = source;
+    }
+
+    const target = this.recoveryTargets[this.recoveryCursor];
+    await this.ensureSegmentLoaded(target);
+    const sourceCount = this.encoder.sourceSymbolCount;
+
+    // Systematic first, again, and this is not a nicety - it is the difference
+    // between a recovery tail that works and one that cannot.
+    //
+    // The receiver's decoder holds at most `sourceSymbolCount` pending
+    // equations, a deliberate memory bound: a repair symbol that cannot yet be
+    // reduced is stored, and once k of them are stored every further one is
+    // rejected as saturated. A segment that lost *all* its source symbols
+    // therefore fills that budget with unsolvable algebra and then refuses
+    // everything after it, and no repair budget rescues it - measured at 1.5x,
+    // 2.5x and 4x overhead, none of which recovered such a segment.
+    //
+    // Repair alone is thus useful only where some source already landed, which
+    // is the common case and not the only one: a burst that takes a whole
+    // segment is exactly what a hand moving in front of a camera produces. So a
+    // recovery batch replays the segment's source symbols before generating
+    // fresh repair. A receiver missing two of them discards the rest by
+    // fingerprint at almost no cost; a receiver missing all of them is rebuilt
+    // outright, with no algebra at all.
+    const emittedInBatch = this.recoveryBatchSource
+      + Math.ceil(this.recoveryBatchSource * this.config.repairOverheadRatio)
+      - this.recoveryBatchRemaining;
+    this.recoveryBatchRemaining -= 1;
+
+    let symbolId: number;
+    let isSource: boolean;
+    if (emittedInBatch < sourceCount) {
+      symbolId = emittedInBatch;
+      isSource = true;
+    } else {
+      // Ids continue above everything already emitted for this segment, so a
+      // recovery repair symbol is never one the receiver has seen and rejected.
+      symbolId = this.recoveryNextSymbolId.get(target) ?? this.symbolsForSegment(target);
+      this.recoveryNextSymbolId.set(target, symbolId + 1);
+      isSource = false;
+    }
+
+    this.encoder.symbolInto(symbolId, this.symbolScratch);
+    const frame = serializeDataFrame({
+      frameType: isSource ? V2_FRAME_TYPE.SOURCE : V2_FRAME_TYPE.REPAIR,
+      sessionId: this.manifest.sessionId,
+      fileId: this.manifest.fileId,
+      segmentIndex: target,
+      symbolId,
+      sourceSymbolCount: sourceCount,
+      frameFlags: 0,
+      payload: this.symbolScratch,
+    });
+
+    if (isSource) this.counters.sourceSymbolsEmitted += 1;
+    else this.counters.repairSymbolsEmitted += 1;
+    this.counters.recoverySymbolsEmitted += 1;
+    this.framesProduced += 1;
+    return frame;
+  }
+
   private async advanceToPendingSymbol(): Promise<boolean> {
     while (true) {
       if (this.segmentIndex >= this.plan.segmentCount) {
@@ -964,8 +1179,15 @@ export class StreamingTransferSession {
  * exists to catch the wrong file early. SHA-256 over the reconstruction is
  * still what decides whether a transfer is real.
  */
-function applyResume(token: string, sha256: Uint8Array, plan: SegmentPlan): ResumeToken {
-  const decoded = decodeResumeToken(token);
+function applyResume(
+  token: string,
+  sha256: Uint8Array,
+  plan: SegmentPlan,
+): TargetedResumeToken {
+  // Reads either shape. A v2 token additionally names the gaps, which is what
+  // turns "restart here and resend everything after it" into a recovery pass
+  // that transmits only what is missing.
+  const decoded = decodeTargetedResumeToken(token);
   if (!decoded.ok) {
     throw new DeqrError(
       ErrorCode.RESUME_TOKEN_INVALID,

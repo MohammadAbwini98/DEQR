@@ -74,6 +74,14 @@ button.danger {
   min-height: 100dvh;
   margin: 0 auto;
   padding: calc(18px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+  /*
+   * Keeps focus and `scrollIntoView` from parking a control under the dock.
+   * The dock is sticky, so it reserves its own space in the flow - but the
+   * browser's scroll-into-view does not know that, and on iOS it will bring a
+   * button to rest exactly where the dock sits. A dock's worth of scroll
+   * padding is what puts a focused resume code or Save button above it.
+   */
+  scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -510,7 +518,21 @@ dd {
   margin: 0 auto;
   padding: 12px calc(20px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
   border-top: 1px solid rgba(204, 215, 228, .78);
-  background: rgba(244, 247, 251, .92);
+  /*
+   * Opaque, and it has to be.
+   *
+   * This was `rgba(244, 247, 251, .92)` with no `backdrop-filter` anywhere in
+   * the stylesheet, so content scrolling beneath a sticky dock showed straight
+   * through it at 8%. On a phone, text sliding under the buttons is exactly
+   * what "the action region overlays receiver content" describes - and it is
+   * worst on the screens that matter most, where a progress figure or a resume
+   * code is what is being read.
+   *
+   * An opaque rule did exist, but only under `prefers-reduced-transparency`,
+   * which iOS Safari does not implement - so on the one device this app is
+   * built for, that fallback could never apply.
+   */
+  background: #f4f7fb;
 }
 
 /* The dock is a two-column row for a pair of peers. A primary action outranks
@@ -846,7 +868,9 @@ dd {
   dl div { background: #111d29; }
   dt { color: #91a3b7; }
   dd { color: #d9e3ee; }
-  .action-dock { border-color: #2c3c4d; background: rgba(13, 20, 29, .93); }
+  /* Opaque for the same reason as the light theme: nothing sits behind it,
+     so translucency is content showing through rather than depth. */
+  .action-dock { border-color: #2c3c4d; background: #0d141d; }
 
   /* Phase 09 surfaces. Every foreground/background pair here is one the
      accessibility contract already measures at 4.5:1 or better, reused rather
@@ -885,15 +909,17 @@ dd {
   .camera-indicator { background: #000000; }
 }
 
+/* The dock is absent here on purpose: it is opaque in every theme now, so a
+   reduced-transparency override for it would be a second opinion about a
+   colour that has only one. `card` and `trust-note` are still translucent by
+   design and still need the fallback. */
 @media (prefers-reduced-transparency: reduce) {
   .card,
-  .trust-note,
-  .action-dock { background: #ffffff; }
+  .trust-note { background: #ffffff; }
 
   @media (prefers-color-scheme: dark) {
     .card,
-    .trust-note,
-    .action-dock { background: #16212e; }
+    .trust-note { background: #16212e; }
   }
 }
 

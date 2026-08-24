@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { V2_COMPRESSION } from '../../src/core/protocol-v2';
-import { RECEIVER_STATE, type ReceiverFault, type ReceiverState } from '../src/receiver-state';
+import {
+  RECEIVER_STATE,
+  sessionIsCleared,
+  type ReceiverFault,
+  type ReceiverState,
+} from '../src/receiver-state';
+import { RECEIVER_POLICY } from '../../src/core/receiver-policy';
 import {
   checkpointRejectionCopy,
   describeVerification,
@@ -16,7 +22,9 @@ import {
   summarizeInterruption,
   summarizeStorage,
   summarizeTransfer,
+  transferHasStalled,
   transferSizeLine,
+  usefulThroughput,
 } from '../src/receiver-view-model';
 import { emptyProgress, type ReceiveProgress } from '../src/worker-protocol';
 
@@ -345,11 +353,121 @@ describe('what a state is allowed to offer', () => {
     }
   });
 
-  it('offers a resume only where the bytes actually survived', () => {
-    expect(ALL_STATES.filter(mayOfferResume)).toEqual([RECEIVER_STATE.INTERRUPTED]);
-    // Cancelled and failed both delete. Offering a resume for data that is
-    // gone would be a worse lie than offering nothing.
+  it('offers a resume exactly where a stalled transfer still holds its bytes', () => {
+    expect(ALL_STATES.filter(mayOfferResume).sort()).toEqual([
+      RECEIVER_STATE.INCOMPLETE,
+      RECEIVER_STATE.INTERRUPTED,
+      RECEIVER_STATE.RECOVERING,
+    ].sort());
+
+    // `sessionIsCleared` is deliberately *not* the test here, and the
+    // difference is worth stating because it is easy to conflate. It means the
+    // in-memory session is gone - decoders, worker state - which `INTERRUPTED`
+    // does on purpose as a privacy posture. It says nothing about the bytes on
+    // disk, which is what a resume actually adopts through `checkpoint.json`.
+    // So `INTERRUPTED` clears its session and still has data to resume, while
+    // `INCOMPLETE` and `RECOVERING` keep both.
+    expect(sessionIsCleared(RECEIVER_STATE.INTERRUPTED)).toBe(true);
+    expect(sessionIsCleared(RECEIVER_STATE.INCOMPLETE)).toBe(false);
+
+    // Cancelled and failed delete the stored data too, so a code for them would
+    // be a worse lie than offering nothing.
     expect(mayOfferResume(RECEIVER_STATE.CANCELLED)).toBe(false);
     expect(mayOfferResume(RECEIVER_STATE.FAILED)).toBe(false);
+
+    // Not while it is advancing: a code minted mid-flight is stale before it
+    // can be read aloud, and the screen has progress to show instead.
+    expect(mayOfferResume(RECEIVER_STATE.RECEIVING)).toBe(false);
+    expect(mayOfferResume(RECEIVER_STATE.COMPLETE)).toBe(false);
+  });
+});
+
+/**
+ * The judgement the physical failure turned on.
+ *
+ * A receiver that cannot tell "frames are still arriving" from "the sender
+ * stopped" has only one thing it can display, and it displayed it until the
+ * user gave up. Every rule here is about not crying stall where there is no
+ * transfer to stall.
+ */
+describe('a silent transfer is called stalled, and only then', () => {
+  const THRESHOLD = 12_000;
+  const base = { sessionActive: true, complete: false, thresholdMs: THRESHOLD };
+
+  it('stalls once the silence reaches the threshold', () => {
+    expect(transferHasStalled({ ...base, lastUniqueFrameAtMs: 1_000, nowMs: 1_000 + THRESHOLD })).toBe(true);
+  });
+
+  it('does not stall one millisecond early', () => {
+    expect(transferHasStalled({ ...base, lastUniqueFrameAtMs: 1_000, nowMs: 1_000 + THRESHOLD - 1 })).toBe(false);
+  });
+
+  it('never stalls without a session', () => {
+    // A camera pointed at nothing is SCANNING. Reporting a stalled transfer
+    // where there is no transfer would send someone looking for a fault.
+    expect(transferHasStalled({
+      ...base, sessionActive: false, lastUniqueFrameAtMs: 1_000, nowMs: 1_000_000,
+    })).toBe(false);
+  });
+
+  it('never stalls before the first unique frame', () => {
+    // The manifest arriving *is* the first unique frame; before it there is
+    // nothing to have gone quiet.
+    expect(transferHasStalled({ ...base, lastUniqueFrameAtMs: 0, nowMs: 1_000_000 })).toBe(false);
+  });
+
+  it('never stalls a completed transfer, however long verification runs', () => {
+    expect(transferHasStalled({
+      ...base, complete: true, lastUniqueFrameAtMs: 1_000, nowMs: 1_000_000,
+    })).toBe(false);
+  });
+
+  it('recovers the moment a unique frame lands', () => {
+    const stalled = { ...base, lastUniqueFrameAtMs: 1_000, nowMs: 50_000 };
+    expect(transferHasStalled(stalled)).toBe(true);
+    expect(transferHasStalled({ ...stalled, lastUniqueFrameAtMs: 49_999 })).toBe(false);
+  });
+
+  it('defaults to the receiver policy when no threshold is given', () => {
+    const justUnder = RECEIVER_POLICY.stallAfterSilentMs - 1;
+    expect(transferHasStalled({ sessionActive: true, complete: false, lastUniqueFrameAtMs: 1, nowMs: 1 + justUnder })).toBe(false);
+    expect(transferHasStalled({ sessionActive: true, complete: false, lastUniqueFrameAtMs: 1, nowMs: 1 + justUnder + 1 })).toBe(true);
+  });
+});
+
+/**
+ * The unit the programme says to optimise in.
+ *
+ * Configured FPS and useful throughput come apart in the direction that
+ * flatters: raising the frame rate raises frames per second while a camera that
+ * can no longer resolve the symbol delivers fewer bytes. Phase 13 has to be
+ * able to see that, so it has to measure bytes.
+ */
+describe('throughput is measured in bytes that landed, not frames that arrived', () => {
+  it('reports the transport rate from committed bytes', () => {
+    const rate = usefulThroughput({
+      bytesCommitted: 46_310, transportBytes: 100_000, originalBytes: 100_000, elapsedMs: 10_000,
+    });
+    expect(rate.transportBytesPerSecond).toBeCloseTo(4_631, 0);
+    // No compression: the two rates are the same number.
+    expect(rate.originalBytesPerSecond).toBeCloseTo(4_631, 0);
+  });
+
+  it('scales the user-visible rate by the compression the sender chose', () => {
+    // 0.269 was Phase 08's measured ratio on real source: every transported
+    // byte carries about 3.7 original ones, and a rate quoted in transport
+    // bytes would understate the transfer by that factor.
+    const rate = usefulThroughput({
+      bytesCommitted: 10_000, transportBytes: 26_900, originalBytes: 100_000, elapsedMs: 1_000,
+    });
+    expect(rate.transportBytesPerSecond).toBeCloseTo(10_000, 0);
+    expect(rate.originalBytesPerSecond).toBeCloseTo(37_175, 0);
+  });
+
+  it('reports nothing rather than infinity before anything has landed', () => {
+    expect(usefulThroughput({ bytesCommitted: 0, transportBytes: 100, originalBytes: 100, elapsedMs: 5_000 }))
+      .toEqual({ transportBytesPerSecond: 0, originalBytesPerSecond: 0 });
+    expect(usefulThroughput({ bytesCommitted: 500, transportBytes: 100, originalBytes: 100, elapsedMs: 0 }))
+      .toEqual({ transportBytesPerSecond: 0, originalBytesPerSecond: 0 });
   });
 });

@@ -22,6 +22,7 @@
  */
 
 import { V2_COMPRESSION } from '../../src/core/protocol-v2';
+import { RECEIVER_POLICY } from '../../src/core/receiver-policy';
 import { RECEIVER_STATE, type ReceiverFault, type ReceiverState } from './receiver-state';
 import type { ReceiveProgress } from './worker-protocol';
 
@@ -354,6 +355,78 @@ export function isStorageFault(code: string | undefined): boolean {
   return code !== undefined && STORAGE_FAULT_CODES.has(code);
 }
 
+/**
+ * Whether the transfer has gone silent long enough to be called stalled.
+ *
+ * Pure, and takes its clock, because the behaviour it decides is the one the
+ * physical failure turned on: a receiver that could not tell "still arriving"
+ * from "stopped" showed `Receiving transfer` with a live camera until the user
+ * gave up. Everything about that judgement is here, in a function a test can
+ * drive without waiting twelve seconds.
+ *
+ * Three rules, in order:
+ *
+ * - **No session, no stall.** A camera pointed at nothing is `SCANNING`, and
+ *   reporting that as a stalled transfer would be a fault where there is not
+ *   even a transfer.
+ * - **A session that has never received a unique frame cannot stall**, because
+ *   the manifest arriving *is* the first unique frame. Before it there is
+ *   nothing to be silent about.
+ * - **A complete session cannot stall**, however long verification takes.
+ */
+/**
+ * What the optical link is actually delivering, in bytes per second.
+ *
+ * The number the programme's own rule says to optimise for — "verified original
+ * bytes per wall-clock second", never configured FPS. The two come apart badly
+ * and in the direction that flatters: raising the frame rate raises frames per
+ * second while a camera that can no longer resolve the symbol delivers *fewer*
+ * useful bytes. A 20 FPS profile that beats 60 has to be visible as such, and
+ * it is only visible in this unit.
+ *
+ * Measured from bytes the receiver has actually committed to storage, not from
+ * frames multiplied by a payload size. Committed bytes have survived the CRC,
+ * the fountain algebra and the write; frames counted at the decoder have
+ * survived none of those, and the gap between the two is the whole difference
+ * between nominal and useful.
+ *
+ * `originalBytesPerSecond` is what a person experiences — their file arriving —
+ * and differs from the transport rate whenever the sender compressed. Both are
+ * reported because optimising the wrong one is how a compressible fixture makes
+ * a profile look faster than it is.
+ */
+export function usefulThroughput(input: {
+  bytesCommitted: number;
+  transportBytes: number;
+  originalBytes: number;
+  elapsedMs: number;
+}): { transportBytesPerSecond: number; originalBytesPerSecond: number } {
+  const seconds = input.elapsedMs / 1_000;
+  if (!(seconds > 0) || !(input.bytesCommitted > 0)) {
+    return { transportBytesPerSecond: 0, originalBytesPerSecond: 0 };
+  }
+  const transportBytesPerSecond = input.bytesCommitted / seconds;
+  // Compression means each transported byte carries more than one original
+  // byte. With no compression the ratio is 1 and the two rates are equal.
+  const ratio = input.transportBytes > 0 && input.originalBytes > 0
+    ? input.originalBytes / input.transportBytes
+    : 1;
+  return { transportBytesPerSecond, originalBytesPerSecond: transportBytesPerSecond * ratio };
+}
+
+export function transferHasStalled(input: {
+  sessionActive: boolean;
+  complete: boolean;
+  lastUniqueFrameAtMs: number;
+  nowMs: number;
+  thresholdMs?: number;
+}): boolean {
+  const threshold = input.thresholdMs ?? RECEIVER_POLICY.stallAfterSilentMs;
+  if (!input.sessionActive || input.complete) return false;
+  if (input.lastUniqueFrameAtMs <= 0) return false;
+  return input.nowMs - input.lastUniqueFrameAtMs >= threshold;
+}
+
 export function isCapacityFault(code: string | undefined): boolean {
   return code !== undefined && CAPACITY_FAULT_CODES.has(code);
 }
@@ -478,12 +551,22 @@ export function mayOfferExport(state: ReceiverState): boolean {
 }
 
 /**
- * Whether the interrupted-session card should be offered.
+ * Whether a resume code should be offered.
  *
- * Only `INTERRUPTED` keeps its bytes. A cancelled or failed session deleted
- * them, and offering a resume for data that is gone would be a worse lie than
- * offering nothing.
+ * The rule is "this state still holds its bytes", not any particular state
+ * name. A cancelled or failed session deleted them, and offering a resume for
+ * data that is gone would be a worse lie than offering nothing.
+ *
+ * `INTERRUPTED` was the only such state until Phase 13. `INCOMPLETE` and
+ * `RECOVERING` were added precisely *because* they keep their bytes, and they
+ * are where a code is most useful of all: a stalled receiver is looking at a
+ * transfer that can still finish, and the code is the only thing that can tell
+ * the sending device which segments to send again. Leaving it out of the one
+ * screen that exists to ask for recovery frames would have made the new states
+ * decorative.
  */
 export function mayOfferResume(state: ReceiverState): boolean {
-  return state === RECEIVER_STATE.INTERRUPTED;
+  return state === RECEIVER_STATE.INTERRUPTED
+    || state === RECEIVER_STATE.INCOMPLETE
+    || state === RECEIVER_STATE.RECOVERING;
 }
