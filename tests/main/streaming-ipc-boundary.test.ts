@@ -63,10 +63,20 @@ import { StreamingSessionRegistry } from '../../src/main/streaming-session-regis
 import { V2_DATA_LAYOUT, V2_FRAME_TYPE, parseFrame, symbolByteRange } from '../../src/core/protocol-v2';
 import '../../src/preload/index';
 
+/**
+ * Every privileged streaming channel, listed so adding one is a deliberate act.
+ *
+ * `beginRecovery` was added in Phase 13 and this list is why it could not be
+ * added quietly: a new main-process capability reachable from the renderer has
+ * to be reviewed, not discovered later. It takes a session id and an optional
+ * list of segment indices, and can start frame generation - which is exactly
+ * the kind of thing that should cost a test edit.
+ */
 const STREAM_CHANNELS = [
   'streamTransfer:select',
   'streamTransfer:nextFrame',
   'streamTransfer:progress',
+  'streamTransfer:beginRecovery',
   'streamTransfer:cancel',
 ] as const;
 
@@ -89,7 +99,7 @@ afterAll(async () => {
 });
 
 describe('the v2 streaming channels exist and are registered like every other channel', () => {
-  it('registers exactly the four streaming channels, all through the trusted wrapper', () => {
+  it('registers exactly the streaming channels it declares, all through the trusted wrapper', () => {
     registerIpcHandlers();
     for (const channel of STREAM_CHANNELS) {
       expect(mocks.handlers.has(channel), channel).toBe(true);
@@ -101,9 +111,10 @@ describe('the v2 streaming channels exist and are registered like every other ch
     expect(streaming.sort()).toEqual([...STREAM_CHANNELS].sort());
   });
 
-  it('exposes those four and nothing else on the preload bridge', () => {
+  it('exposes exactly those and nothing else on the preload bridge', () => {
     const api = mocks.exposed.get('deqr') as { streamTransfer: Record<string, unknown> };
-    expect(Object.keys(api.streamTransfer).sort()).toEqual(['cancel', 'nextFrame', 'progress', 'select']);
+    expect(Object.keys(api.streamTransfer).sort())
+      .toEqual(['beginRecovery', 'cancel', 'nextFrame', 'progress', 'select']);
   });
 
   it('exposes no channel that reads an arbitrary path', () => {

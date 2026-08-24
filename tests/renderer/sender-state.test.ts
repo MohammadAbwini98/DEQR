@@ -244,3 +244,48 @@ describe('sender state machine', () => {
     expect(reduceSender(entry, start)).toBe(entry);
   });
 });
+
+/**
+ * The gap a physical run found: a pass that ends with nowhere to go.
+ *
+ * The sender displayed its last frame, the QR surface unmounted, and
+ * `STREAM_COMPLETE` offered four actions - a new file, a resume code, reset,
+ * cancel - every one of which abandons the transfer. A receiver still scanning,
+ * a few symbols short, could only be helped by starting the whole file again.
+ *
+ * Phase 13 had built the recovery tail by then. Nothing could call it.
+ */
+describe('a finished pass can continue instead of only being abandoned', () => {
+  it('offers a way back to displaying frames', () => {
+    const complete = { state: SENDER_STATE.STREAM_COMPLETE, epoch: 0 };
+    const recovering = reduceSender(complete, { type: SENDER_EVENT.RECOVERY_REQUESTED });
+
+    // Back to TRANSFERRING, because that is what recovery is: the same session
+    // and the same manifest, with more symbols. A second surface could drift
+    // from the first.
+    expect(recovering.state).toBe(SENDER_STATE.TRANSFERRING);
+  });
+
+  it('keeps every other exit from a finished pass', () => {
+    // Recovery is an addition, not a replacement. Abandoning has to stay as
+    // easy as it was.
+    for (const type of [
+      SENDER_EVENT.SELECT_REQUESTED,
+      SENDER_EVENT.RESUME_REQUESTED,
+      SENDER_EVENT.RESET,
+      SENDER_EVENT.CANCELLED,
+    ]) {
+      const next = reduceSender({ state: SENDER_STATE.STREAM_COMPLETE, epoch: 0 }, { type });
+      expect(next.state, `${type} no longer leaves STREAM_COMPLETE`).not.toBe(SENDER_STATE.STREAM_COMPLETE);
+    }
+  });
+
+  it('does not let recovery be requested from a state with no session behind it', () => {
+    // The event only means something where a finished session is still
+    // registered. Anywhere else it must be ignored rather than invent one.
+    for (const state of [SENDER_STATE.IDLE, SENDER_STATE.PREFLIGHTING, SENDER_STATE.CANCELLED]) {
+      const next = reduceSender({ state, epoch: 0 }, { type: SENDER_EVENT.RECOVERY_REQUESTED });
+      expect(next.state, `${state} accepted a recovery request`).toBe(state);
+    }
+  });
+});

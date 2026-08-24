@@ -187,6 +187,25 @@ export function registerIpcHandlers() {
     }
   });
 
+  handleTrusted('streamTransfer:beginRecovery', async (_event, rawSessionId: unknown, rawTargets?: unknown) => {
+    try {
+      const sessionId = asSessionId(rawSessionId);
+      if (sessionId === null) {
+        throw new DeqrError(ErrorCode.SESSION_NOT_FOUND, 'Session not found or expired');
+      }
+      // Segment indices come from the renderer, so nothing is read off them
+      // without a check. `beginRecovery` bounds them again against the plan and
+      // refuses an empty or wholly out-of-range set rather than recovering
+      // everything on a bad argument.
+      const targets = Array.isArray(rawTargets)
+        ? rawTargets.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0)
+        : undefined;
+      return await globalStreamingSessions.beginRecovery(sessionId, targets);
+    } catch (e) {
+      return { error: sanitizeError(e) };
+    }
+  });
+
   handleTrusted('streamTransfer:cancel', async (_event, rawSessionId: unknown) => {
     const sessionId = asSessionId(rawSessionId);
     if (sessionId === null) return;

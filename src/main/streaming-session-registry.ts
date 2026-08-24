@@ -130,6 +130,23 @@ export class StreamingSessionRegistry {
     return { frame, progress: viewProgress(session) };
   }
 
+  /**
+   * Starts a recovery pass on a session whose first pass has finished.
+   *
+   * Reachable precisely because `nextFrame` leaves a finished session
+   * registered. Without this the recovery tail built in Phase 13 existed in
+   * `StreamingTransferSession` and could be called by nothing: the sender
+   * displayed its last frame, the renderer replaced the QR with a status card,
+   * and a receiver still a few symbols short had no way to ask for more.
+   *
+   * Returns how many segments the tail will generate for, so the renderer can
+   * say "recovering 3 segments" rather than starting something silent.
+   */
+  async beginRecovery(sessionId: number, targets?: readonly number[]): Promise<number> {
+    const { session } = this.require(sessionId);
+    return session.beginRecovery(targets);
+  }
+
   progress(sessionId: number): StreamingProgressView {
     return viewProgress(this.require(sessionId).session);
   }

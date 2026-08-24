@@ -227,6 +227,15 @@ export interface DeqrAPI {
     select: (options?: StreamingSelectOptions) => Promise<StreamingSelectionResult | null>;
     nextFrame: (sessionId: number) => Promise<StreamingFrameResult>;
     progress: (sessionId: number) => Promise<StreamingProgressView | null>;
+    /**
+     * Starts a recovery pass on a session whose first pass has finished.
+     *
+     * Resolves with the number of segments the tail will generate for, or an
+     * error shape. `targets` are segment indices; omitting them recovers every
+     * segment, which is the only honest default when nothing has said which
+     * are missing - the optical link is one-way.
+     */
+    beginRecovery: (sessionId: number, targets?: number[]) => Promise<number | { error: unknown }>;
     cancel: (sessionId: number) => Promise<void>;
   };
   receive: {

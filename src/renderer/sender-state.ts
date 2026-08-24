@@ -88,6 +88,15 @@ export const SENDER_EVENT = {
   HOLD: 'HOLD',
   RELEASE: 'RELEASE',
   STREAM_FINISHED: 'STREAM_FINISHED',
+  /**
+   * The user asked for more frames after the pass ended.
+   *
+   * The event that was missing. `STREAM_COMPLETE` offered a new file, a resume
+   * code, reset and cancel - four ways to abandon the transfer and none to
+   * continue it. A receiver a few symbols short could only be helped by
+   * starting over.
+   */
+  RECOVERY_REQUESTED: 'RECOVERY_REQUESTED',
   STREAM_FAILED: 'STREAM_FAILED',
   CANCELLED: 'CANCELLED',
   RESET: 'RESET',
@@ -192,6 +201,10 @@ const TRANSITIONS: Readonly<Record<SenderState, Partial<Record<SenderEventType, 
     [SENDER_EVENT.RESET]: SENDER_STATE.IDLE,
   },
   [SENDER_STATE.STREAM_COMPLETE]: {
+    // Back to displaying frames, because that is what recovery is: the same
+    // session, the same manifest, more symbols. Reusing TRANSFERRING remounts
+    // the QR surface rather than building a second one that could drift.
+    [SENDER_EVENT.RECOVERY_REQUESTED]: SENDER_STATE.TRANSFERRING,
     [SENDER_EVENT.SELECT_REQUESTED]: SENDER_STATE.PREFLIGHTING,
     [SENDER_EVENT.RESUME_REQUESTED]: SENDER_STATE.RESUME_ENTRY,
     [SENDER_EVENT.RESET]: SENDER_STATE.IDLE,

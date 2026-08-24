@@ -256,6 +256,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [cancelDialogOpen, closeCancelDialog, requestCancel, state, surface]);
 
+  /**
+   * Keeps displaying frames after the pass ends, for the segments still missing.
+   *
+   * The sender cannot know which those are - the optical link is one-way - so
+   * with no resume code it regenerates for every segment. That is more than is
+   * needed and it is the honest default: the receiver refuses what it already
+   * holds with one bit test, and the alternative is a receiver that can never
+   * be helped without starting the whole file again.
+   */
+  const sendRecoveryFrames = useCallback(async () => {
+    const open = session;
+    if (!open) return;
+    const result = await window.deqr.streamTransfer.beginRecovery(open.sessionId).catch(() => null);
+    // A refusal means the session is gone, not that recovery is unavailable;
+    // returning to the dashboard is the honest answer to a session that ended.
+    if (typeof result !== 'number' || result <= 0) {
+      dispatch({ type: SENDER_EVENT.RESET });
+      return;
+    }
+    dispatch({ type: SENDER_EVENT.RECOVERY_REQUESTED });
+  }, [session, dispatch]);
+
   /* ------------------------------------------------- loopback and receiver */
 
   const startLoopback = useCallback(async () => {
@@ -437,8 +459,8 @@ export default function App() {
                 blurred the two is what this phase's gate forbids. */}
             <p className="completion-caveat">
               <strong>This is not a confirmation that the file arrived.</strong> Check the receiving device: it
-              reports a verified file only after its SHA-256 matches. If it is still missing segments, enter
-              its resume code here and send the same file again.
+              reports a verified file only after its SHA-256 matches. If it is still receiving, or says it is
+              missing segments, keep this session open and send recovery frames.
             </p>
             <dl className="metadata-grid">
               <div><dt>File</dt><dd title={metadata.filename}>{metadata.filename}</dd></div>
@@ -446,7 +468,13 @@ export default function App() {
               <div><dt>Integrity</dt><dd className="monospace">{metadata.sha256.slice(0, 16)}…</dd></div>
             </dl>
             <div className="action-row">
-              <button className="primary" onClick={selectFile}>Send another file</button>
+              {/* The action that was missing, and it is the primary one now.
+                  Every other button here abandons the transfer: a new file, a
+                  new session from a code, a reset. A receiver still scanning
+                  needs more symbols for *this* session, and until this existed
+                  the recovery tail could be called by nothing. */}
+              <button className="primary" onClick={sendRecoveryFrames}>Send recovery frames</button>
+              <button className="secondary" onClick={selectFile}>Send another file</button>
               <button className="secondary" onClick={() => dispatch({ type: SENDER_EVENT.RESUME_REQUESTED })}>Enter a resume code</button>
               <button className="tertiary" onClick={() => dispatch({ type: SENDER_EVENT.RESET })}>Return to dashboard</button>
             </div>

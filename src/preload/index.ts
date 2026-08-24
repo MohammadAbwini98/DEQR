@@ -45,6 +45,14 @@ const api: DeqrAPI = {
       ipcRenderer.invoke('streamTransfer:nextFrame', sessionId),
     progress: (sessionId: number): Promise<StreamingProgressView | null> =>
       ipcRenderer.invoke('streamTransfer:progress', sessionId),
+    /**
+     * Starts a recovery pass for a session whose first pass has finished.
+     *
+     * `targets` are segment indices; omitting them recovers every segment,
+     * which is the honest default when nothing has said which are missing.
+     */
+    beginRecovery: (sessionId: number, targets?: number[]): Promise<number | { error: unknown }> =>
+      ipcRenderer.invoke('streamTransfer:beginRecovery', sessionId, targets),
     cancel: (sessionId: number): Promise<void> => ipcRenderer.invoke('streamTransfer:cancel', sessionId)
   },
   loopback: {
