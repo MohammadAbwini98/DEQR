@@ -382,7 +382,29 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
-## Current Release Artifacts (2026-08-24, rebuilt)
+## Current Release Artifacts (2026-08-24, diagnostic build)
+
+**Authoritative record of what is currently built.** `release/` is gitignored, so these hashes are the durable copy.
+
+- Built from `7dc70b2` on `main` at 2026-08-24 19:12:35 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
+
+| Artifact | Bytes | SHA-256 |
+| --- | --- | --- |
+| `release/deqr 0.1.0.exe` (portable) | 85,046,233 | `744528E3D1510B3E4495DABA6F28CE9DB67599A296FD1F326E332E3D1C9522E5` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,237,977 | `01FAD4D46B502162D265AECA7204C919EC74FD2637E475B540D6623282320120` |
+| `resources/app.asar` | 4,879,195 | `086488D9D62BC34030B24A738B02A4650881525F75C500BC94122ACD3283843B` |
+
+- **Built to answer an open question, not to close one.** A physical run showed 71 QR codes read, 0 blocks recovered, 0 duplicates and 0 other-transfer, with refusals being the only counter not on screen. This build surfaces **"Codes refused"** and the three commonest refusal reasons in scanning details, so the next attempt names the fault instead of leaving it to inference.
+- Confirmed present by extracting `app.asar`: "Codes refused", "Blocks recovered" and "Send recovery frames" are all in the shipped bundles.
+- **Packaged validation:** `release:verify` hashes match the manifest, `test:packaged` PASS, all six fuses `FUSE_VERDICT PASS`, packaged launch responsive.
+- **What was ruled out before this build.** A new optical round-trip test renders a real v2 frame at each shipping profile's version and ECC, decodes it with jsQR exactly as the worker does, and submits it to a real `ReceivePipeline`. All four profiles round-trip byte for byte, and a manifest plus a full 96-symbol segment is accepted with zero rejections. **The protocol, encoder, QR rendering, jsQR and pipeline are correct on that path**, so the physical refusals originate somewhere else.
+- **The cause of the physical refusals remains unknown.** No physical gate has been executed and the certified maximum transfer size remains 0 bytes.
+
+## Superseded Release Artifacts (2026-08-24, recovery-reachable build)
+
+- Built from `e5da884`. First artifact in which the recovery tail could be invoked. Portable `9CAB0E16...C470`, NSIS `7C5457E0...EF6A`, asar `F6255D32...0BF1`. Overwritten by the `7dc70b2` build.
+
+## Superseded Release Artifacts (2026-08-24, first Phase 13 build)
 
 **Authoritative record of what is currently built.** `release/` is gitignored, so its
 `RELEASE-MANIFEST.json` does not survive this machine; these hashes are the durable copy.
