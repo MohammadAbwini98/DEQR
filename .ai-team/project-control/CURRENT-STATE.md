@@ -382,7 +382,28 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
-## Current Release Artifacts (2026-08-24, diagnostic build)
+## Current Release Artifacts (2026-08-24, continuous-streaming build)
+
+**Authoritative record of what is currently built.** `release/` is gitignored, so these hashes are the durable copy.
+
+- Built from `bcccc66` on `main` at 2026-08-24 20:16:14 by `npm run release`, gates passing before the build.
+
+| Artifact | Bytes | SHA-256 |
+| --- | --- | --- |
+| `release/deqr 0.1.0.exe` (portable) | 85,046,340 | `32D3A88A5DD56F3C20E0549CAAE5613A92139FC580C98A1F8AF8AF427791BD7C` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,238,100 | `774441BC40E8EC7BC52BF0B1A9AC9EA4A9AB79E6C80591DCCC6DDB202FD0D108` |
+| `resources/app.asar` | 4,879,876 | `ACAFC15F053C8B56FCD2F6765B1BA6F0D0A4864CB0296A7FDB1D3912AA9184F4` |
+
+- **The first artifact whose sender does not stop.** A physical run showed `SEGMENTS SENT: 1` - a one-segment file is about 170 frames, so the pass ended in roughly fifteen seconds while the phone was still being lined up, and the sender then removed the only thing the camera was reading. The link is one-way, so the sender can never learn the receiver is finished; the pass now rolls straight into the recovery tail and keeps displaying fresh symbols until someone stops it.
+- Confirmed present by extracting `app.asar`: "Sending recovery frames", "Still sending" and "Codes refused" are all in the shipped bundles.
+- **Packaged validation:** `release:verify` hashes match, `test:packaged` PASS, all six fuses `FUSE_VERDICT PASS`, packaged launch responsive.
+- **Still unexplained:** on the previous build the receiver read 71 QR codes and accepted none. This artifact carries the refusal counters that will name it. The cause is not yet known and no physical gate has been executed; the certified maximum transfer size remains 0 bytes.
+
+## Superseded Release Artifacts (2026-08-24, diagnostic build)
+
+- Built from `7dc70b2`. First artifact surfacing refusal counts and reasons on the device. Portable `744528E3...22E5`, asar `086488D9...843B`. Overwritten by the `bcccc66` build.
+
+## Superseded Release Artifacts (2026-08-24, recovery-reachable build)
 
 **Authoritative record of what is currently built.** `release/` is gitignored, so these hashes are the durable copy.
 
