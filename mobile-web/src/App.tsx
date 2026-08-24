@@ -707,10 +707,25 @@ export default function App() {
               from "codes decode but belong to another transfer" from "blocks
               are arriving"; no payload byte is ever surfaced here. */}
           <dl>
-            <div><dt>{progress.protocol === 2 ? 'Segments' : 'Unique blocks'}</dt><dd>{progress.unitsRecovered} / {progress.unitsTotal || '—'}</dd></div>
+            {/* `protocol` is 0 until a manifest is accepted, and the old
+                ternary fell through to v1's "Unique blocks" for that case - so
+                a receiver that had acquired *nothing* labelled its empty
+                counter with the vocabulary of a running v1 session. On a
+                screen whose whole job is telling a user what did and did not
+                happen, that is a small lie in the worst possible place. */}
+            <div>
+              <dt>{progress.protocol === 0 ? 'Blocks recovered' : progress.protocol === 2 ? 'Segments' : 'Unique blocks'}</dt>
+              <dd>{progress.unitsRecovered} / {progress.unitsTotal || '—'}</dd>
+            </div>
             <div><dt>QR codes read</dt><dd>{telemetry?.decodedFrames ?? 0}</dd></div>
             <div><dt>Duplicates ignored</dt><dd>{progress.framesDuplicate}</dd></div>
             <div><dt>Other transfer</dt><dd>{progress.framesForeign}</dd></div>
+            {/* The number that separates "the codes are not ours" from "the
+                codes are ours and something is wrong with them". A screen that
+                showed 71 codes read and 0 blocks recovered, with no third
+                number, could not tell those apart - and that is exactly the
+                state a physical run ended in. */}
+            <div><dt>Codes refused</dt><dd>{progress.framesRejected}</dd></div>
             {/* Where this transfer's bytes are going. `memory` is the no-OPFS
                 fallback and is bounded at about nine megabytes, which is worth
                 knowing before a four-gigabyte scan. */}
@@ -720,6 +735,15 @@ export default function App() {
                 Frames in flight is capped by construction; skipped and stale
                 are what the cap costs when decode falls behind capture. */}
             {telemetry && <div><dt>Frames in flight</dt><dd>{telemetry.inFlight} / {telemetry.maxInFlight}</dd></div>}
+            {/* Why they were refused, most frequent first. Error codes, never
+                content. This is the field that turns "the transfer did not
+                work" into a diagnosis: mostly CRC_MISMATCH is optical, mostly
+                V1_FRAME is an old desktop, mostly NOT_DEQR means the camera is
+                reading something that is not a DEQR code at all, and a
+                manifest-shaped refusal means the session could not be opened. */}
+            {topRejections(progress.rejectionsByReason).map(([reason, count]) => (
+              <div key={reason}><dt>{reason.replace(/_/g, ' ').toLowerCase()}</dt><dd>{count}</dd></div>
+            ))}
             {Boolean(telemetry?.skippedBusy) && <div><dt>Skipped while busy</dt><dd>{telemetry!.skippedBusy}</dd></div>}
             {Boolean(telemetry?.droppedStale) && <div><dt>Dropped stale</dt><dd>{telemetry!.droppedStale}</dd></div>}
             {/* Non-zero means the video stopped presenting frames and the
@@ -766,6 +790,18 @@ function cameraPanelModifier(state: ReceiverState): string {
   if (state === RECEIVER_STATE.PREFLIGHT || state === RECEIVER_STATE.CAMERA_WARMING) return 'preparing';
   if (state === RECEIVER_STATE.FAILED) return 'error';
   return 'idle';
+}
+
+/**
+ * The three commonest refusal reasons, most frequent first.
+ *
+ * Three because a scan-details list is read on a phone, in a hurry, by someone
+ * whose transfer is not working. The long tail never diagnoses anything the
+ * top of the list does not.
+ */
+function topRejections(reasons: Record<string, number> | undefined): [string, number][] {
+  if (!reasons) return [];
+  return Object.entries(reasons).sort((left, right) => right[1] - left[1]).slice(0, 3);
 }
 
 function cameraStatusCopy(state: ReceiverState, scannerFailed: boolean): string {
