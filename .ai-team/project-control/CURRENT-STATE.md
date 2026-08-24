@@ -382,25 +382,31 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 - Renderer boundary unchanged: `connect-src 'none'` and the fail-closed request policy still prevent the Electron renderer from reaching this server.
 - Regression: desktop **20 files / 205 tests PASS**; PWA 7 files / 25 tests PASS; typechecks, doctor, drift, `test:packaged`, diff-check, and the fuse verdict all PASS.
 
-## Current Release Artifacts (2026-08-24)
+## Current Release Artifacts (2026-08-24, rebuilt)
 
 **Authoritative record of what is currently built.** `release/` is gitignored, so its
 `RELEASE-MANIFEST.json` does not survive this machine; these hashes are the durable copy.
 
-- Built from `8834de8` on `main` at 2026-08-24 18:14:56 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
+- Built from `e5da884` on `main` at 2026-08-24 18:50:54 by `npm run release`, with typecheck, tests, doctor and drift all passing before the build.
 
 | Artifact | Bytes | SHA-256 |
 | --- | --- | --- |
-| `release/deqr 0.1.0.exe` (portable) | 85,045,691 | `4CC8218B4E453641245187FF9AFE225EB0020B3BF6D8070BEB214364E28FE558` |
-| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,237,443 | `7F0E7BE9E7A57BBF38291D30165EB043D14CEAFE56C2C90F08684A64F5774EC5` |
-| `resources/app.asar` | 4,876,160 | `EF44DFE73596A16D1DBFA5FB4BBF03EA356E167E31E3F80D5FF1FBD92284FED8` |
+| `release/deqr 0.1.0.exe` (portable) | 85,046,185 | `9CAB0E16CFD4334B5F3C29FFE779B02C1F354AFAC8981BE089D992CBA1E9C470` |
+| `release/deqr Setup 0.1.0.exe` (NSIS) | 85,237,944 | `7C5457E08505C4366914CF90968813B674E83F75733BD06AAFD80291708AEF6A` |
+| `resources/app.asar` | 4,878,821 | `F6255D32B916C1571736BFFC3F816B7D9AE935764504113CDDC66F46C3BE0BF1` |
 
-- **The first artifact carrying Phase 13**, and therefore the first that could recover a transfer the sender's pass left short. Confirmed by extracting `app.asar` rather than inferred from the build: the packaged worker is `deqr-mobile-shell-v4`, the receiver bundle contains `INCOMPLETE`, `RECOVERING`, `STALLED` and the stall sentence "The sender stopped before every part arrived", and `dist/main/streaming-sender.js` contains `beginRecovery`.
-- **Packaged validation, all executed against this artifact.** `release:verify` reports hashes matching the manifest and **matches HEAD (8834de8)**. `test:packaged` PASS. All six Electron fuses read from `release/win-unpacked/deqr.exe`: `FUSE_VERDICT PASS`. Packaged launch PASS twice - `DEQR_RENDERER_READY dashboard=DEQR_OPTICAL_TRANSFER preload=available`, responsive window, graceful close, **exit code 0** both times.
-- **New, non-fatal observation on this artifact.** Both packaged launches logged Chromium GPU shader-cache errors *before* the readiness marker: `Unable to move the cache: Access is denied. (0x5)` and `Gpu Cache Creation failed: -2`. Assessment: **environmental, not a DEQR defect.** It is Chromium failing to rotate its own `GPUCache` directory under `%APPDATA%/deqr`; no DEQR feature depends on that cache, the renderer mounts normally, and shutdown is clean. It reproduced with no competing instance, so it is not a concurrency artefact; the cache directories are user-owned with no stale leftovers, which points at a denied directory rename (antivirus or a lingering file handle). It was **not** present in the `940e1d2` run, and nothing in Phase 13 touches GPU, cache configuration or userData - so it is recorded as an unexplained environmental change rather than dismissed. An operator running the physical matrix should expect these lines and not read them as a fault.
-- **This artifact still has no physical-device row behind it.** It exists so the Phase 13 physical matrix can finally be run against a build that contains the architecture being certified.
-- Re-check at any time with `npm run release:verify`. `npm run release:list` shows what was built when.
-- **Never build a release with `npm run package`**: it passes `--dir` and refreshes only `release/win-unpacked/`, leaving the portable `.exe` at whatever it already was.
+- **The first artifact in which the recovery tail can actually be invoked.** The `8834de8` build carried the tail but wired it to nothing - no IPC channel, no preload method, no control - so a sender that finished its pass could only abandon the transfer. Found on a physical run: the progress bar advances, the pass ends, the QR surface unmounts while the iPhone is still scanning. Confirmed present here by extracting `app.asar` rather than inferred: `streamTransfer:beginRecovery` in `dist/main/ipc-handlers.js`, `beginRecovery` on the preload bridge, and "Send recovery frames" in the renderer bundle.
+- **Packaged validation, all executed against this artifact.** `release:verify` reports hashes matching the manifest and **matches HEAD (e5da884)**. `test:packaged` PASS. All six Electron fuses: `FUSE_VERDICT PASS`. Packaged launch PASS.
+- The Chromium GPU shader-cache lines described in the superseded entry below still appear before the readiness marker and remain environmental; no DEQR feature depends on that cache.
+- **This artifact still has no physical-device row behind it.** It exists so the Phase 13 physical matrix can be run against a build in which the recovery path is reachable.
+- Re-check with `npm run release:verify`. **Never build a release with `npm run package`.**
+
+## Superseded Release Artifacts (2026-08-24, first Phase 13 build)
+
+- Built from `8834de8`. Carried Phase 13's states, stall detection and recovery tail, but the tail was **unreachable from the UI**, so a receiver left short could not be helped without restarting the whole file. Portable `4CC8218B...E558`, NSIS `7F0E7BE9...4EC5`, asar `EF44DFE7...FED8`. Overwritten by the `e5da884` build.
+- Both launches of that build logged Chromium GPU shader-cache errors before the readiness marker (`Unable to move the cache: Access is denied. (0x5)`, `Gpu Cache Creation failed: -2`). Assessed as environmental rather than a DEQR defect: Chromium failing to rotate its own `GPUCache` under `%APPDATA%/deqr`, reproducing with no competing instance, with the cache directories user-owned and no stale leftovers. Recorded rather than dismissed because it was absent from the `940e1d2` run.
+
+## Superseded Release Artifacts (2026-08-23)
 
 ## Superseded Release Artifacts (2026-08-23)
 
