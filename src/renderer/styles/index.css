@@ -130,17 +130,54 @@ button.danger {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Caption buttons, drawn to sit *in* the title bar rather than beside it.
+ *
+ * The icons are SVG paths (see App.tsx), so what remains here is geometry,
+ * states and hit targets. The full title-bar height is the click target -
+ * 46x44 without visually enlarging the icon - matching the caption metrics
+ * this chrome imitates. Hover/pressed/focus states are stated here once; the
+ * destructive close treatment lives in the hover-media block below with the
+ * other pointer-only styling.
+ */
 .titlebar-button {
   display: grid;
   width: 46px;
+  align-self: stretch;
   min-height: 44px;
   padding: 0;
   place-items: center;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--text-primary);
-  font-size: 1.125rem;
+  color: var(--text-secondary);
+  /* The glyph row this replaces was a font-size decision; the SVG carries its
+     own size, so text sizing here would only shift the focus box. */
+  font-size: inherit;
+}
+
+.titlebar-button svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  /* One device pixel per stroke leg on any integer scale factor: crisp
+     geometry is the point of replacing the glyphs, so keep the renderer
+     honest about it. */
+  shape-rendering: crispEdges;
+}
+
+/* The global button press scales; a caption button must not. */
+.titlebar-button:active:not(:disabled) {
+  transform: none;
+  filter: brightness(0.92);
+}
+
+.titlebar-button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
 }
 
 /*
@@ -154,15 +191,33 @@ button.danger {
   flex: 1;
   min-height: 0;
   align-items: center;
-  justify-content: center;
+  /* Main-axis centering lives on the child (below), not here. A flex
+     container that centers along an overflowing axis clips the top of its
+     content into unreachable negative space - the heading scrolled out from
+     under the titlebar with no scrollbar able to reach it. flex-start keeps
+     the scroll origin honest; the child's auto margins still centre the
+     composition whenever there is room to centre it in. */
+  justify-content: flex-start;
   padding: clamp(24px, 4vw, 54px);
   overflow: auto;
+}
+
+/* Centre when there is room; collapse to nothing when the content is taller
+   than the window, so an overflowing screen scrolls from its true top. */
+.content > * {
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 .content--send-transferring,
 .content--send-held,
 .content--send-ready {
   align-items: flex-start;
+  /* The code is the screen. Chrome around it stays close to the frame on
+     every window, because every pixel here comes straight off the symbol's
+     budget on short viewports - measured, not assumed (see the probe). */
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 .eyebrow {
@@ -218,9 +273,19 @@ p {
   width: min(100%, 1000px);
 }
 
+/*
+ * Compact by design, not by shrinking everything uniformly.
+ *
+ * The dashboard used to stack a large intro block, three cards floored at
+ * 272px each, the receiver card and a status note into one column - which ran
+ * past every common desktop viewport and forced a scroll before the user had
+ * read anything. The intro's typographic scale comes down, the card floors go,
+ * and the spacing tightens; hierarchy is carried by weight and colour as
+ * before. At 1366x768 the whole composition now fits without scrolling.
+ */
 .dashboard {
   display: grid;
-  gap: 28px;
+  gap: 16px;
 }
 
 .dashboard-intro {
@@ -229,21 +294,26 @@ p {
   justify-self: center;
 }
 
+.dashboard-intro h1 {
+  margin-bottom: 6px;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+}
+
 .lede {
   margin: 0 auto;
   font-size: clamp(1rem, 2vw, 1.1875rem);
 }
 
 .capacity-copy {
-  margin: 16px auto 0;
+  margin: 8px auto 0;
   color: var(--text-primary);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
 }
 
 .action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .action-card,
@@ -260,8 +330,8 @@ p {
 
 .pwa-host-card {
   display: grid;
-  gap: 14px;
-  padding: 26px;
+  gap: 10px;
+  padding: 18px 20px;
 }
 
 .pwa-host-card h2 {
@@ -390,10 +460,13 @@ p {
 
 .action-card {
   display: grid;
-  min-height: 272px;
+  /* No floor. A 272px minimum was what pushed three cards past the viewport;
+     the rows template below already keeps the button pinned to the card's
+     foot at whatever height the content needs. */
+  min-height: 0;
   grid-template-rows: auto 1fr auto;
-  gap: 18px;
-  padding: 26px;
+  gap: 12px;
+  padding: 18px 20px;
   transition: border-color var(--motion-standard) var(--motion-ease-out), box-shadow var(--motion-standard) var(--motion-ease-out), transform var(--motion-standard) var(--motion-ease-out);
 }
 
@@ -418,7 +491,7 @@ p {
 .error-banner {
   width: min(100%, 740px);
   margin: 0 auto;
-  padding: 13px 16px;
+  padding: 9px 16px;
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   text-align: center;
@@ -575,11 +648,60 @@ dd {
   font-size: 0.875rem;
 }
 
+/*
+ * Two columns, because a tall symbol and a tall status panel cannot share one
+ * vertical axis inside a desktop viewport.
+ *
+ * The stacked layout this replaced put the heading, the symbol, the progress
+ * panel, the diagnostics disclosure and the controls into a single column:
+ * past roughly 500px of non-symbol content, any readable symbol pushed the
+ * page into a scroll. Here the status work moves beside the symbol, so the
+ * page's height is governed by whichever column is taller - normally the
+ * symbol's - and the whole composition fits 768px with room to spare.
+ *
+ * Below 1100px the columns fold back into one and `.content`'s own scroller
+ * takes over, which is the graceful degradation rather than a clipped layout.
+ */
 .transfer-view {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding-bottom: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  grid-template-areas:
+    'header   header'
+    'stage    primary'
+    'guidance errors'
+    'details  actions';
+  align-items: start;
+  align-content: start;
+  gap: 10px 24px;
+  padding-bottom: 8px;
+}
+
+.transfer-view > .transfer-header { grid-area: header; }
+.transfer-view > .qr-stage { grid-area: stage; }
+.transfer-view > .qr-guidance { grid-area: guidance; }
+.transfer-view > .transfer-error { grid-area: errors; }
+.transfer-view > .transfer-primary { grid-area: primary; }
+.transfer-view > .diagnostics { grid-area: details; }
+.transfer-view > .transfer-actions { grid-area: actions; }
+
+/* One symbol per row: the stage is centred in its column, never stretched. */
+.transfer-view > .qr-stage {
+  justify-self: center;
+  padding: clamp(16px, 3.5vh, 32px) clamp(24px, 4vw, 40px);
+}
+
+@media (max-width: 1100px) {
+  .transfer-view {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'header'
+      'stage'
+      'guidance'
+      'primary'
+      'errors'
+      'details'
+      'actions';
+  }
 }
 
 .transfer-header {
@@ -589,9 +711,12 @@ dd {
   gap: 20px;
 }
 
+/* Compact by design: the heading shares the vertical axis with nothing now,
+   but every pixel it takes is a pixel off the symbol's budget on short
+   windows. It is context, not the headline act - the code is. */
 .transfer-header h1 {
-  margin-bottom: 6px;
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  margin-bottom: 2px;
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
 }
 
 .transfer-file {
@@ -1058,6 +1183,33 @@ dd {
   font-variant-numeric: tabular-nums;
 }
 
+/* The recovery phase's restated headline. Smaller than a live percentage on
+   purpose: it is a fact about the source set, not the operation's progress,
+   and it must not read as though the number is still counting something. */
+.progress-percent--phase {
+  align-self: center;
+  font-size: 1.25rem;
+}
+
+/*
+ * The one status line of the recovery tail, in counts rather than claims.
+ *
+ * Amber, not success-green and not danger-red: nothing has failed, and nothing
+ * is finished either. It exists because the alternative was a full bar, a
+ * "100%", and three contradictory captions - the state this screen used to
+ * present while fresh recovery frames were still going up.
+ */
+.transfer-recovery-status {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(154, 103, 0, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(154, 103, 0, 0.08);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 .progress-segment,
 .progress-bytes {
   margin: 0;
@@ -1281,6 +1433,12 @@ dd {
   }
 
   button.danger:hover:not(:disabled),
+  /* Neutral caption hover, distinct from the destructive one below. */
+  .titlebar-button:hover:not(:disabled):not(.close) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
   .titlebar-button.close:hover:not(:disabled) {
     border-color: var(--accent-danger);
     background: var(--accent-danger);
@@ -1401,4 +1559,76 @@ dd {
   color: var(--text-secondary);
   font-size: 0.9rem;
   max-width: 60ch;
+}
+/*
+ * Short desktop windows.
+ *
+ * Measured with the layout probe: the dashboard's last primary control
+ * ("Start receiver") must stay inside the viewport at every common desktop
+ * height, 720 through 900. The compacting tier therefore covers viewports up
+ * to 940 CSS px tall - which includes the 860px work area a 900px-tall
+ * display actually offers once the taskbar is subtracted. Everything tightened
+ * here is chrome, rhythm, or the one intro paragraph the preflight card
+ * restates; no control drops below its hit target.
+ */
+@media (max-height: 940px) {
+  .content {
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+
+  .dashboard {
+    gap: 10px;
+  }
+
+  .capacity-copy {
+    /* The preflight card restates both limits for the actual file, so on
+       short windows this intro paragraph is the one thing that can go without
+       pushing a control below the fold. */
+    display: none;
+  }
+
+  /* Second tier, measured against 1280x720 where the first tier alone still
+     left the receiver card's control 44px below the fold. */
+  .dashboard-intro h1 {
+    font-size: clamp(1.25rem, 2vw, 1.5rem);
+  }
+
+  .lede,
+  .capacity-copy {
+    font-size: 0.875rem;
+  }
+
+  .action-icon {
+    width: 34px;
+    height: 34px;
+    font-size: 1.1rem;
+  }
+
+  .action-card {
+    gap: 10px;
+    padding: 14px 16px;
+  }
+
+  .pwa-host-card {
+    padding: 12px 16px;
+  }
+
+  .pwa-host-body {
+    gap: 14px;
+  }
+
+  /* Final tier: 1280x720 measured the receiver control 4.9px below the fold.
+     These three shave exactly that, without touching any hit target. */
+  .action-grid {
+    gap: 10px;
+  }
+
+  .pwa-host-qr {
+    padding: 8px;
+  }
+
+  .pwa-host-card .action-row {
+    margin-top: 0;
+  }
 }

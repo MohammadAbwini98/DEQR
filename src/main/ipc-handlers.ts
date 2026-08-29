@@ -98,6 +98,12 @@ export function registerIpcHandlers() {
   handleTrusted('windowControls:close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
+  // Read-only state query for the calling frame's own window, so the restore
+  // icon can track reality instead of a guess. Guarded like every other
+  // channel: a frame that may not close the window may not poll it either.
+  handleTrusted('windowControls:isMaximized', (event) =>
+    BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false,
+  );
 
   // Read-only view of the LAN receiver publication. It carries no key material
   // and no filesystem paths, so the renderer can display it directly.

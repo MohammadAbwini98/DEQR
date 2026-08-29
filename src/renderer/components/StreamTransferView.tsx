@@ -17,13 +17,16 @@ import {
 } from '../qr-render';
 import {
   EtaEstimator,
-  etaCopy,
+  OpticalRateMeter,
   formatBytes,
   formatDuration,
   formatPercent,
   formatRate,
+  parseByteCount,
   progressSummary,
   readTransfer,
+  recoveryStatusLine,
+  remainingCopy,
   summarizeCompression,
 } from '../sender-model';
 
@@ -114,6 +117,17 @@ export default function StreamTransferView({
   const planRef = useRef<QrRenderPlan | null>(null);
   const estimatorRef = useRef<EtaEstimator>(undefined as unknown as EtaEstimator);
   estimatorRef.current ??= new EtaEstimator();
+  /**
+   * Throughput as the link sees it, not as the file's coverage does.
+   *
+   * The estimator above goes quiet the moment the first pass is over, because
+   * coverage stops moving while the recovery tail keeps emitting. This meter
+   * samples bytes on the wire instead, so the rate keeps reporting for as long
+   * as symbols are going up - which is exactly when a person is watching to
+   * see whether anything is still happening.
+   */
+  const wireMeterRef = useRef<OpticalRateMeter>(undefined as unknown as OpticalRateMeter);
+  wireMeterRef.current ??= new OpticalRateMeter();
 
   /*
    * The two callbacks, held by reference rather than by identity.
@@ -313,6 +327,9 @@ export default function StreamTransferView({
       // A hold is not slowness, and measuring it as slowness would make the
       // ETA wrong for as long as the window remembers it.
       estimatorRef.current.reset();
+      // Paused time is not throughput either: both meters forget the window,
+      // so neither reports a rate computed across the gap.
+      wireMeterRef.current.reset();
     } else {
       scheduler.resume();
     }
@@ -338,6 +355,10 @@ export default function StreamTransferView({
           performance.now(),
           BigInt(/^\d+$/.test(next.transportBytesCovered) ? next.transportBytesCovered : '0'),
         );
+        // Sampled beside it from the same poll: bytes on the wire keep
+        // climbing through the recovery tail, so this is the meter that stays
+        // alive when coverage has finished moving.
+        wireMeterRef.current.observe(performance.now(), parseByteCount(next.bytesOnTheWire));
       } catch {
         // A progress read for a session that is going away is not worth
         // surfacing; the frame source is what reports a real failure.
@@ -361,6 +382,17 @@ export default function StreamTransferView({
   );
 
   const percent = readout ? formatPercent(readout.fraction) : '0%';
+  /**
+   * The sender's phase, from either witness.
+   *
+   * The App-level flag fires when the frame source rolls into the tail; the
+   * progress view carries the main process's own phase. Either arriving first
+   * is enough - they describe the same fact from two ends of an IPC boundary.
+   */
+  const recoveringNow = recovering || (readout?.recovering ?? false);
+  // Bytes per second actually being emitted. Null only before there is a
+  // window, never because a phase changed.
+  const opticalRate = wireMeterRef.current.read();
   const announced = useMemo(() => {
     if (held) return 'Optical stream held.';
     if (!readout) return 'Optical stream starting.';
@@ -412,7 +444,17 @@ export default function StreamTransferView({
           along is my file", and nothing here is a frame count. */}
       <section className="transfer-primary" aria-label="Transfer progress">
         <div className="progress-headline">
-          <strong className="progress-percent">{percent}</strong>
+          {/* During the tail the number is deliberately *not* an overall
+              percentage. The source set really is fully emitted; the operation
+              is not over, and labelling it "100%" with no qualifier is the
+              exact lie this screen used to tell. Naming what the 100% covers,
+              beside a status line that says the transfer is waiting, keeps the
+              two facts apart. */}
+          {recoveringNow ? (
+            <strong className="progress-percent progress-percent--phase">File data 100%</strong>
+          ) : (
+            <strong className="progress-percent">{percent}</strong>
+          )}
           <span className="progress-segment">
             {readout && readout.segmentCount > 0
               ? `Segment ${readout.segmentPosition.toLocaleString()} of ${readout.segmentCount.toLocaleString()}`
@@ -426,8 +468,10 @@ export default function StreamTransferView({
           aria-label="Optical stream sent"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={readout ? Math.round(readout.fraction * 100) : 0}
-          aria-valuetext={percent}
+          aria-valuenow={recoveringNow ? 100 : readout ? Math.round(readout.fraction * 100) : 0}
+          aria-valuetext={recoveringNow
+            ? 'File data fully sent. Extra recovery frames are being shown while the receiving device verifies.'
+            : percent}
         >
           <span style={{ transform: `scaleX(${readout ? Math.min(1, readout.fraction) : 0})` }} />
         </div>
@@ -436,21 +480,38 @@ export default function StreamTransferView({
           {readout ? progressSummary(readout, compression.active) : 'Waiting for the first frame'}
         </p>
 
+        {/* Said once, in counts rather than claims. There is no percentage for
+            an open-ended recovery tail and none is invented here: the only
+            completion this screen may point at is the receiver's own hash
+            check, on the device that holds the file. */}
+        {recoveringNow && readout && (
+          <p className="transfer-recovery-status" role="status">
+            {recoveryStatusLine(readout)}
+          </p>
+        )}
+
         <dl className="transfer-headline-metrics">
           <div>
             <dt>Elapsed</dt>
             <dd>{formatDuration(elapsedMs)}</dd>
           </div>
           <div>
-            <dt>Rate</dt>
-            <dd>{formatRate(reading.bytesPerSecond)}</dd>
+            {/* Emitted optical data per second - manifest, repair and recovery
+                frames included - because that is what the link is actually
+                doing. It keeps reporting through the recovery tail, where a
+                coverage-derived rate would flatline to a dash. */}
+            <dt>Optical rate</dt>
+            <dd>{formatRate(opticalRate ?? reading.bytesPerSecond)}</dd>
           </div>
           <div>
             <dt>Remaining</dt>
-            {/* Absent until the window is long enough and steady enough. The
-                waiting text is deliberate: several minutes of a long transfer
-                are spent here. */}
-            <dd>{etaCopy(reading)}</dd>
+            {/* Phase-aware. During the tail there is no finite denominator to
+                estimate against - the tail ends when the receiver says so - so
+                this names the wait instead of inventing a number. The screen's
+                own recovery witness is passed through: it can lead the polled
+                progress view by one sampling period, and the two must never
+                disagree about whether a wait is what is being named. */}
+            <dd>{remainingCopy(readout, reading, recoveringNow)}</dd>
           </div>
         </dl>
       </section>
@@ -472,6 +533,10 @@ export default function StreamTransferView({
           <div><dt>Repair share</dt><dd>{readout ? formatPercent(readout.repairFraction) : '—'}</dd></div>
           <div><dt>Source symbols</dt><dd>{progress ? progress.sourceSymbolsEmitted.toLocaleString() : '—'}</dd></div>
           <div><dt>Repair symbols</dt><dd>{progress ? progress.repairSymbolsEmitted.toLocaleString() : '—'}</dd></div>
+          {/* The tail's own counter, apart from the pass's repair budget. A
+              number climbing here beside a full bar is the tail working, not
+              the screen stuck. */}
+          <div><dt>Recovery frames</dt><dd>{progress ? progress.recoverySymbolsEmitted.toLocaleString() : '—'}</dd></div>
           <div><dt>Bytes on the wire</dt><dd>{readout ? formatBytes(readout.wireBytes) : '—'}</dd></div>
           <div><dt>Starved wake-ups</dt><dd>{stats ? stats.starvedWakeups.toLocaleString() : '—'}</dd></div>
           <div><dt>Paint overruns</dt><dd>{stats ? stats.overruns.toLocaleString() : '—'}</dd></div>

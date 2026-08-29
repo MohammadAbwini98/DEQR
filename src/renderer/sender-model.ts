@@ -249,6 +249,92 @@ export class EtaEstimator {
   }
 }
 
+/* ---------------------------------------------------- optical throughput */
+
+/**
+ * Bytes per second actually handed to the display, over a short moving window.
+ *
+ * `EtaEstimator` measures *source coverage*, which is the right denominator
+ * for a remaining-time estimate — and exactly the wrong signal once the first
+ * pass is over. The recovery tail keeps putting fresh frames on screen while
+ * coverage stands still, so a rate derived from coverage flatlines to "—" at
+ * the precise moment the transfer is most active.
+ *
+ * This meter samples `bytesOnTheWire` instead — every byte handed to the
+ * display, headers and repair and recovery frames included — so it keeps
+ * climbing for as long as symbols are being emitted, whatever phase is
+ * producing them. It reports `null` until it has a window, and a hold resets
+ * it, so paused time is never measured as throughput.
+ */
+export class OpticalRateMeter {
+  private readonly samples: RateSample[] = [];
+
+  constructor(
+    /** How much wall time one reading spans. Shorter than the ETA window on purpose. */
+    private readonly windowMs = 10_000,
+    private readonly minSamples = 3,
+  ) {}
+
+  /** Discards the window. Called on a hold beside `EtaEstimator.reset()`. */
+  reset(): void {
+    this.samples.length = 0;
+  }
+
+  observe(atMs: number, wireBytes: bigint): void {
+    const last = this.samples[this.samples.length - 1];
+    if (last && atMs <= last.atMs) return;
+    this.samples.push({ atMs, bytes: wireBytes });
+    const cutoff = atMs - this.windowMs;
+    while (this.samples.length > 1 && this.samples[0].atMs < cutoff) this.samples.shift();
+  }
+
+  /** Mean bytes per second across the window, or null until there is one. */
+  read(): number | null {
+    if (this.samples.length < this.minSamples) return null;
+    const first = this.samples[0];
+    const last = this.samples[this.samples.length - 1];
+    const spanMs = last.atMs - first.atMs;
+    if (spanMs <= 0) return null;
+    const moved = last.bytes - first.bytes;
+    if (moved <= 0n) return null;
+    return (Number(moved) * 1000) / spanMs;
+  }
+}
+
+/* ------------------------------------------------------- recovery wording */
+
+/**
+ * The Remaining cell, aware of which phase the sender is in.
+ *
+ * During the pass this is the estimator's own honest answer, including its
+ * refusal to guess early. During the recovery tail there is no finite
+ * denominator left to estimate against — the tail ends when the receiver says
+ * so, and the sender cannot hear it — so any number here would be invented.
+ * Naming the wait is the only truthful entry.
+ *
+ * `tailActive` is the screen's own phase witness, which can lead the polled
+ * progress view by up to one sampling period. It wins whenever it is set:
+ * a Remaining cell that said "Waiting for frames" under an eyebrow announcing
+ * recovery frames was exactly the contradiction this module exists to prevent,
+ * and the two witnesses must never be allowed to disagree on it.
+ */
+export function remainingCopy(readout: TransferReadout | null, reading: RateReading, tailActive?: boolean): string {
+  if (tailActive || readout?.recovering) return 'Awaiting receiver';
+  return etaCopy(reading);
+}
+
+/**
+ * One line that says what the recovery tail is doing, in counts not claims.
+ *
+ * Deliberately no percentage anywhere in it: the source set is fully emitted,
+ * the tail is open-ended by design, and a single overall percent would have to
+ * be fabricated against a denominator nobody has. The receiver's verification
+ * remains the only completion this screen may point at, and it says whose it is.
+ */
+export function recoveryStatusLine(readout: TransferReadout): string {
+  return `Source data fully sent · Recovery frames sent: ${readout.recoverySymbolsEmitted.toLocaleString()} · Waiting for the receiving device to verify`;
+}
+
 /* --------------------------------------------------------------- preflight */
 
 export interface CompressionSummary {
@@ -364,6 +450,17 @@ export interface TransferReadout {
   /** Repair symbols as a fraction of all payload symbols emitted. */
   repairFraction: number;
   complete: boolean;
+  /**
+   * True while the recovery tail is producing.
+   *
+   * This is the sender-side phase, not a receiver fact: it means every source
+   * frame has been shown at least once and fresh symbols are still going up.
+   * It is what entitles the screen to stop calling the operation a percentage
+   * and start calling it a wait.
+   */
+  recovering: boolean;
+  /** Recovery-tail symbols emitted so far, counted apart from the pass. */
+  recoverySymbolsEmitted: number;
   /** True when this pass began partway into the file. */
   resumed: boolean;
   /** Segments the resume skipped. Zero for a fresh transfer. */
@@ -410,6 +507,8 @@ export function readTransfer(progress: StreamingProgressView): TransferReadout {
     segmentCount: progress.segmentCount,
     repairFraction: payloadSymbols > 0 ? progress.repairSymbolsEmitted / payloadSymbols : 0,
     complete: progress.complete,
+    recovering: progress.recovering,
+    recoverySymbolsEmitted: progress.recoverySymbolsEmitted,
     resumed: progress.resumeFromSegment > 0,
     resumeFromSegment: progress.resumeFromSegment,
   };

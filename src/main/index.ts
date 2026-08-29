@@ -111,6 +111,19 @@ function createWindow() {
     autoHideMenuBar: true,
   });
 
+  // The renderer's restore/maximize icon must track the window, not a guess.
+  // Both transitions are pushed on the same channel; the read-only
+  // `windowControls:isMaximized` invoke covers the initial render, and these
+  // events cover everything after it. Guarded against a destroyed window
+  // because a quit can land between the event and the send.
+  const notifyMaximizeState = () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('windowControls:maximizeChanged', mainWindow.isMaximized());
+    }
+  };
+  mainWindow.on('maximize', notifyMaximizeState);
+  mainWindow.on('unmaximize', notifyMaximizeState);
+
   // Strict CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

@@ -68,4 +68,35 @@ describe('Preload Bridge', () => {
     unsubscribe();
     expect(mockIpcRenderer.removeListener).toHaveBeenCalledWith('pwaHost:status', expect.any(Function));
   });
+
+  it('polls the window state through a read-only channel', async () => {
+    const deqr = (global as any).deqr;
+
+    await deqr.windowControls.isMaximized();
+    expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('windowControls:isMaximized');
+  });
+
+  it('subscribes and unsubscribes from maximize-state changes', async () => {
+    const deqr = (global as any).deqr;
+    const listener = vi.fn();
+
+    const unsubscribe = deqr.windowControls.onMaximizeChanged(listener);
+    expect(mockIpcRenderer.on).toHaveBeenCalledWith(
+      'windowControls:maximizeChanged',
+      expect.any(Function),
+    );
+
+    // The wrapper forwards the payload, not the event.
+    const handler = mockIpcRenderer.on.mock.calls.find(
+      (call: unknown[]) => call[0] === 'windowControls:maximizeChanged',
+    )?.[1] as (event: unknown, maximized: boolean) => void;
+    handler({}, true);
+    expect(listener).toHaveBeenCalledWith(true);
+
+    unsubscribe();
+    expect(mockIpcRenderer.removeListener).toHaveBeenCalledWith(
+      'windowControls:maximizeChanged',
+      expect.any(Function),
+    );
+  });
 });

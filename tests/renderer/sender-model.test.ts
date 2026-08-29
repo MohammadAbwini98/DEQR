@@ -9,6 +9,7 @@ import {
   MIN_ETA_SAMPLES,
   MIN_ETA_WINDOW_MS,
   MIN_RATE_SAMPLES,
+  OpticalRateMeter,
   etaCopy,
   formatByteString,
   formatBytes,
@@ -20,6 +21,8 @@ import {
   progressSummary,
   ratioOf,
   readTransfer,
+  recoveryStatusLine,
+  remainingCopy,
   summarizeCompression,
 } from '../../src/renderer/sender-model';
 
@@ -61,6 +64,8 @@ function progress(overrides: Partial<StreamingProgressView> = {}): StreamingProg
     manifestFramesEmitted: 0,
     sourceSymbolsEmitted: 0,
     repairSymbolsEmitted: 0,
+    recoverySymbolsEmitted: 0,
+    recovering: false,
     complete: false,
     resumeFromSegment: 0,
     ...overrides,
@@ -402,5 +407,159 @@ describe('nominal transfer estimate', () => {
   it('refuses to estimate against a rate it does not have', () => {
     expect(nominalTransferSeconds(GIB, 0)).toBeNull();
     expect(nominalTransferSeconds(GIB, Number.NaN)).toBeNull();
+  });
+});
+
+describe('optical rate meter', () => {
+  const STEP = 500;
+
+  it('reports nothing until it has a window to average across', () => {
+    const meter = new OpticalRateMeter();
+    meter.observe(0, 1_000n);
+    meter.observe(STEP, 9_000n);
+    // Three samples is the minimum: two points make a segment, not a rate.
+    expect(meter.read()).toBeNull();
+    meter.observe(2 * STEP, 17_000n);
+    expect(meter.read()).not.toBeNull();
+  });
+
+  it('measures bytes handed to the display, not source coverage', () => {
+    // The recovery tail moves `bytesOnTheWire` while coverage stands still.
+    // This test is the reason the meter exists: a coverage-derived rate
+    // flatlines exactly when the link is busiest.
+    const meter = new OpticalRateMeter();
+    for (let index = 0; index < 6; index += 1) {
+      meter.observe(index * STEP, BigInt(index * 8_000));
+    }
+    // ~8000 bytes every 500 ms = ~16 KiB/s.
+    expect(meter.read()).toBeCloseTo(16_000, -2);
+  });
+
+  it('keeps reporting through the recovery tail at the same cadence as the pass', () => {
+    const meter = new OpticalRateMeter();
+    // First pass ends at 10 s; the tail keeps emitting identical-size frames.
+    for (let index = 0; index < 20; index += 1) {
+      meter.observe(index * STEP, BigInt((index + 1) * 7_000));
+    }
+    const duringPass = meter.read();
+    for (let index = 20; index < 32; index += 1) {
+      meter.observe(index * STEP, BigInt((index + 1) * 7_000));
+    }
+    const duringRecovery = meter.read();
+    expect(duringPass).not.toBeNull();
+    expect(duringRecovery).not.toBeNull();
+    // Same emission rate in both phases: the tail is the link still working,
+    // so its rate must be indistinguishable from the pass's.
+    expect(duringRecovery!).toBeCloseTo(duringPass!, -2);
+  });
+
+  it('forgets its window on a hold, so paused time is never measured as throughput', () => {
+    const meter = new OpticalRateMeter();
+    for (let index = 0; index < 8; index += 1) {
+      meter.observe(index * STEP, BigInt(index * 10_000));
+    }
+    expect(meter.read()).toBeGreaterThan(0);
+    meter.reset();
+    expect(meter.read()).toBeNull();
+  });
+
+  it('ignores samples that do not advance monotonic time', () => {
+    const meter = new OpticalRateMeter();
+    meter.observe(1_000, 500n);
+    meter.observe(1_000, 999n);
+    meter.observe(900, 999n);
+    meter.observe(1_500, 5_000n);
+    // Only the advancing pair survives; two samples is still short of a window.
+    expect(meter.read()).toBeNull();
+    meter.observe(2_000, 9_500n);
+    expect(meter.read()).toBeCloseTo(9_000, -2);
+  });
+
+  it('trims its window by time rather than by sample count', () => {
+    const meter = new OpticalRateMeter(5_000);
+    for (let index = 0; index < 100; index += 1) {
+      meter.observe(index * STEP, BigInt(index * 8_000));
+    }
+    // 5 s window at 500 ms steps holds six samples; the reading must come from
+    // the recent span only, not history a slowdown would have to fight out of.
+    expect(meter.read()).toBeCloseTo(16_000, -2);
+  });
+
+  it('answers null while the wire stands still, and formatRate shows the dash', () => {
+    const meter = new OpticalRateMeter();
+    for (let index = 0; index < 6; index += 1) {
+      meter.observe(index * STEP, 50_000n);
+    }
+    // Nothing moved: no rate is the honest answer, never zero bytes per second.
+    expect(meter.read()).toBeNull();
+    expect(formatRate(null)).toBe('—');
+  });
+});
+
+describe('recovery phase telemetry', () => {
+  const steadyReading = { bytesPerSecond: 16_000, etaSeconds: 90, samples: 12, withheld: null } as const;
+  const stalledReading = { bytesPerSecond: null, etaSeconds: null, samples: 3, withheld: 'NOT_MOVING' } as const;
+
+  it('carries the tail phase and its own counter through the readout', () => {
+    const readout = readTransfer(progress({
+      recovering: true,
+      recoverySymbolsEmitted: 1_248,
+      complete: true,
+    }));
+    expect(readout.recovering).toBe(true);
+    expect(readout.recoverySymbolsEmitted).toBe(1_248);
+    expect(readTransfer(progress()).recovering).toBe(false);
+    expect(readTransfer(progress()).recoverySymbolsEmitted).toBe(0);
+  });
+
+  it('never derives recovery from source progress alone', () => {
+    // Full coverage with the flag false is a finished PASS, not a finished
+    // TRANSFER. The receiver's verification is the only completion, and the
+    // sender-side phase must come from the sender's own tail state.
+    const readout = readTransfer(progress({
+      transportBytesCovered: (4n * GIB).toString(),
+      complete: true,
+      recovering: false,
+    }));
+    expect(readout.fraction).toBe(1);
+    expect(readout.recovering).toBe(false);
+  });
+
+  it('names the wait instead of inventing a remaining time once the tail runs', () => {
+    // Even with a perfectly good ETA in hand: during the tail there is no
+    // finite denominator left to estimate against.
+    const readout = readTransfer(progress({ recovering: true }));
+    expect(remainingCopy(readout, steadyReading)).toBe('Awaiting receiver');
+  });
+
+  it('lets the screen witness outrank a lagging progress poll', () => {
+    // The eyebrow can announce recovery up to one sampling period before the
+    // polled progress view catches up. In that window the Remaining cell must
+    // already say "Awaiting receiver" — "Waiting for frames" under a recovery
+    // banner was the exact contradiction on the reported screen.
+    const staleReadout = readTransfer(progress({ recovering: false }));
+    expect(remainingCopy(staleReadout, stalledReading, true)).toBe('Awaiting receiver');
+    // A null readout (first poll has not landed) defers to the witness too.
+    expect(remainingCopy(null, stalledReading, true)).toBe('Awaiting receiver');
+    // And without the witness the estimator's own answer stands.
+    expect(remainingCopy(staleReadout, stalledReading)).toBe('Waiting for frames');
+  });
+
+  it('keeps the estimator answer during the pass, including its refusals', () => {
+    const measuring = { bytesPerSecond: null, etaSeconds: null, samples: 1, withheld: 'TOO_FEW_SAMPLES' } as const;
+    const readout = readTransfer(progress());
+    expect(remainingCopy(readout, measuring)).toBe('Measuring rate…');
+    expect(remainingCopy(readout, steadyReading)).toBe('About 1m 30s left');
+  });
+
+  it('states the tail in counts, never as a percentage', () => {
+    const line = recoveryStatusLine(readTransfer(progress({
+      recovering: true,
+      recoverySymbolsEmitted: 1248,
+    })));
+    expect(line).toContain('Source data fully sent');
+    expect(line).toContain('1,248');
+    expect(line).toContain('Waiting for the receiving device');
+    expect(line).not.toMatch(/%/);
   });
 });

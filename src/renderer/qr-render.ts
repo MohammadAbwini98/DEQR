@@ -81,39 +81,59 @@ export function chooseQrBudget(availableWidth: number, availableHeight: number):
 }
 
 /**
- * How much room the symbol actually has, read from the layout as rendered.
+ * Vertical chrome and company the symbol must leave for the rest of its screen.
+ *
+ * Measured against the composition of the live transfer screen at its tightest
+ * supported desktop height (720px): titlebar, content padding, heading block,
+ * the guidance line under the stage, and the stage's own padding. Deriving
+ * this by *subtracting measured siblings* was the previous approach and it is
+ * how the oversized-symbol regression happened: on a screen whose stacked
+ * column ran taller than the window, that subtraction went negative, the
+ * negative height was discarded as unsettled layout, and the width alone then
+ * drove the symbol to its maximum while the page scrolled under it.
+ *
+ * The viewport bound is a floor that holds regardless of what the siblings are
+ * doing; the width bound still comes from the rendered stage. The value was
+ * raised from an earlier 288 after the composition probe measured the real
+ * stack at 1366x768: with the symbol one module step larger than the floor
+ * demands, the action row landed below the local scroller's fold. 340 buys
+ * exactly that step back on short windows and changes nothing on tall ones,
+ * where the width bound is the binding constraint.
+ */
+export const QR_VIEWPORT_RESERVED_CSS_PX = 340;
+
+/**
+ * How much room the symbol has, from measurements that cannot feed back.
  *
  * This lives next to `chooseQrBudget` rather than in the view, because "how big
  * may this symbol be" is a rendering question and the view was the only thing
  * that knew the answer. It walks up from the canvas — stage, view, scroll
  * container — so the caller supplies nothing that can drift.
  *
- * Width comes from the stage, which CSS has already bounded. Height is the
- * scroll container's box minus everything in the view that is *not* the stage:
- * header, guidance, metrics, controls and the gaps between them, measured
- * rather than assumed, so moving any of them cannot silently reintroduce an
- * overflow. Excluding the stage from that subtraction is what stops the
- * measurement feeding back on itself when the symbol resizes.
+ * Width comes from the stage, which CSS bounds independently of the canvas
+ * inside it. Height used to be the scroll container's box minus every sibling
+ * of the stage, which made the measurement a function of the very layout the
+ * symbol drives: once the stacked content outgrew the window the allowance
+ * went negative, was discarded as unsettled, and the width alone pushed the
+ * symbol to its cap — the oversized-QR regression. The height now comes from
+ * the window itself minus `QR_VIEWPORT_RESERVED_CSS_PX`, a bound that holds no
+ * matter what the siblings are doing.
  */
 export function measureQrBudget(canvas: HTMLCanvasElement): number {
   const stage = canvas.parentElement;
-  const view = stage?.parentElement;
-  const container = view?.parentElement;
-  if (!stage || !view || !container) return QR_BUDGET_MAX_CSS_PX;
+  if (!stage) return QR_BUDGET_MAX_CSS_PX;
 
   const px = (value: string) => Number.parseFloat(value) || 0;
   const stageStyle = getComputedStyle(stage);
-  const containerStyle = getComputedStyle(container);
-
   const stagePadX = px(stageStyle.paddingLeft) + px(stageStyle.paddingRight);
-  const stagePadY = px(stageStyle.paddingTop) + px(stageStyle.paddingBottom);
-  const containerPadY = px(containerStyle.paddingTop) + px(containerStyle.paddingBottom);
-  const aroundTheStage = view.offsetHeight - stage.offsetHeight;
 
-  return chooseQrBudget(
-    stage.clientWidth - stagePadX,
-    container.clientHeight - containerPadY - aroundTheStage - stagePadY,
-  );
+  // A missing or non-finite innerHeight reads as "unknown", which
+  // `chooseQrBudget` treats as unsettled layout rather than as a tiny window.
+  const viewportBound = typeof window !== 'undefined' && Number.isFinite(window.innerHeight)
+    ? window.innerHeight - QR_VIEWPORT_RESERVED_CSS_PX
+    : Number.NaN;
+
+  return chooseQrBudget(stage.clientWidth - stagePadX, viewportBound);
 }
 
 export interface QrRenderPlan {

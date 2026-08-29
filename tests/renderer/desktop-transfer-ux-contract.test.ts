@@ -145,7 +145,12 @@ describe('desktop sender: the QR surface', () => {
 
   it('keeps the stage itself static too', async () => {
     const styles = await read('styles/index.css');
-    const start = styles.indexOf('.qr-stage {');
+    // Anchored to line start: the composition adds a
+    // `.transfer-view > .qr-stage` override, and an unanchored indexOf would
+    // find that grid-placement rule instead of the base stage rule.
+    const anchored = styles.match(/^\.qr-stage \{/m);
+    expect(anchored).not.toBeNull();
+    const start = anchored!.index;
     const block = styles.slice(start, styles.indexOf('}', start));
     expect(block).toContain('transition: none');
     // The quiet zone is painted into the canvas by `qr-render`; the stage's
@@ -431,5 +436,203 @@ describe('desktop sender: focus and keyboard', () => {
     // so "does this cancel need confirming" has exactly one answer.
     expect(app).toContain('if (!cancelNeedsConfirmation(state))');
     expect(app).toContain('canCancel(state)');
+  });
+});
+
+describe('desktop sender: recovery telemetry', () => {
+  it('never shows a bare percentage while the recovery tail is announced', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    // The recovering branch renders a phase headline, not an overall percent.
+    expect(view).toContain('File data 100%');
+    expect(view).toContain("className=\"progress-percent progress-percent--phase\"");
+    // And the accessible value names what the number covers, too.
+    expect(view).toMatch(/aria-valuenow=\{recoveringNow \? 100 :/);
+    expect(view).toContain('File data fully sent. Extra recovery frames are being shown');
+  });
+
+  it('says the stream continues while the tail runs', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    expect(view).toContain("'Sending recovery frames'");
+    expect(view).toContain('Every frame has been shown once');
+    expect(view).toContain('keep scanning until the');
+  });
+
+  it('feeds the rate from bytes on the wire, so it survives source completion', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    // Sampled from the same poll as coverage, but counting every emitted byte.
+    expect(view).toContain(
+      'wireMeterRef.current.observe(performance.now(), parseByteCount(next.bytesOnTheWire))',
+    );
+    // A hold forgets the window: paused time is not throughput.
+    expect(view).toContain('wireMeterRef.current.reset()');
+    // Labelled for what it measures, with the coverage rate as fallback only.
+    expect(view).toContain('<dt>Optical rate</dt>');
+    expect(view).toContain('formatRate(opticalRate ?? reading.bytesPerSecond)');
+  });
+
+  it('derives remaining copy from the phase, honouring both witnesses', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    // The screen's own flag is passed through: it can lead the polled progress
+    // view by one sampling period and the two must never contradict.
+    expect(view).toContain('remainingCopy(readout, reading, recoveringNow)');
+  });
+
+  it('states the tail in counts through its own status line, in amber', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    expect(view).toContain('{recoveryStatusLine(readout)}');
+
+    const styles = await read('styles/index.css');
+    const start = styles.indexOf('.transfer-recovery-status {');
+    const block = styles.slice(start, styles.indexOf('}', start));
+    // Amber — `--accent-warning` — because nothing has failed and nothing is
+    // finished either. Success green is the receiver's colour and danger red
+    // would read as a fault; neither may style this line.
+    expect(block).toContain('154, 103, 0');
+    expect(block).not.toContain('22, 128, 60');
+    expect(block).not.toContain('var(--accent-success)');
+    expect(block).not.toContain('var(--accent-danger)');
+  });
+});
+
+describe('desktop sender: transfer screen composition', () => {
+  it('sizes the symbol from a viewport bound that cannot feed back', async () => {
+    const view = withoutComments(await read('components/StreamTransferView.tsx'));
+    // Both plan sites — first resolution and resize re-plan — measure the same way.
+    const uses = view.match(/measureQrBudget\(canvas\)/g) ?? [];
+    expect(uses.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('composes stage and progress side by side on a desktop window', async () => {
+    const styles = await read('styles/index.css');
+    const start = styles.indexOf('.transfer-view {');
+    const block = styles.slice(start, styles.indexOf('}', start));
+    expect(block).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 420px)');
+    expect(block).toContain("'stage    primary'");
+
+    // Below the two-column threshold everything stacks in reading order.
+    const narrowStart = styles.indexOf('@media (max-width: 1100px)', start);
+    expect(narrowStart).toBeGreaterThan(-1);
+    const narrow = styles.slice(narrowStart, styles.indexOf('}', narrowStart));
+    expect(narrow).toContain('.transfer-view');
+  });
+
+  it('keeps the scroll owned by the content shell, never the document', async () => {
+    const styles = await read('styles/index.css');
+    const app = styles.slice(styles.indexOf('.app-container {'), styles.indexOf('.titlebar {'));
+    // `height`, not `min-height`: the shell is exactly the window, so the
+    // scroller inside `.content` engages instead of the page growing.
+    expect(app).toContain('height: 100vh');
+
+    const content = styles.slice(styles.indexOf('.content {'), styles.indexOf('.eyebrow'));
+    expect(content).toContain('flex: 1');
+    expect(content).toContain('min-height: 0');
+    expect(content).toContain('overflow: auto');
+  });
+});
+
+describe('dashboard: fits a normal desktop viewport', () => {
+  it('keeps the composition compact rather than shrinking everything uniformly', async () => {
+    const styles = await read('styles/index.css');
+    const dash = styles.slice(
+      styles.indexOf('.dashboard {'),
+      styles.indexOf('.action-card,'),
+    );
+    // The tightened rhythm the single-viewport fit is built from.
+    expect(dash).toContain('.dashboard-intro h1');
+    expect(dash).toMatch(/\.dashboard-intro h1[^}]*clamp\(/);
+    expect(dash).toContain('.capacity-copy');
+    expect(dash).toMatch(/font-size:\s*0\.875rem/);
+
+    const grid = styles.slice(styles.indexOf('.action-grid {'), styles.indexOf('.action-card,'));
+    expect(grid).not.toMatch(/gap:\s*28px/);
+  });
+
+  it('gives the action cards no fixed height floor', async () => {
+    const styles = await read('styles/index.css');
+    const start = styles.indexOf('.action-card,');
+    const block = styles.slice(start, styles.indexOf('}', start));
+    // A 272px floor per card is what pushed three cards plus intro and receiver
+    // past every common viewport. Content sizes the cards now.
+    expect(block).not.toMatch(/min-height:\s*\d{3}px/);
+  });
+
+  it('still keeps comfortable hit targets on its controls', async () => {
+    const styles = await read('styles/index.css');
+    expect(styles).toMatch(/button \{\s*min-height:\s*44px/);
+  });
+});
+
+describe('window controls: geometry, states and IPC', () => {
+  it('draws the caption icons as SVG paths, not font glyphs', async () => {
+    const app = await read('App.tsx');
+    for (const path of ['M0 5h10', 'M0 0l10 10M10 0L0 10']) {
+      expect(app).toContain(path);
+    }
+    expect(app).toContain('viewBox="0 0 10 10"');
+    // The old glyph row is gone.
+    expect(app).not.toContain('>−</button>');
+    expect(app).not.toContain('>□</button>');
+    expect(app).not.toContain('>×</button>');
+  });
+
+  it('mirrors the window state instead of guessing it', async () => {
+    const app = await read('App.tsx');
+    // Seeded once from main, then pushed.
+    expect(app).toContain('windowControls.isMaximized()');
+    expect(app).toContain('windowControls.onMaximizeChanged(');
+    // The control names what it will do now, not what it did last.
+    expect(app).toContain("aria-label={maximized ? 'Restore window' : 'Maximize window'}");
+    expect(app).toMatch(/maximized \? 'Restore window' : 'Maximize window'/);
+  });
+
+  it('sits in the title bar with full-height targets and no drag overlap', async () => {
+    const styles = await read('styles/index.css');
+    const controls = styles.slice(
+      styles.indexOf('.titlebar-controls {'),
+      styles.indexOf('.titlebar-button {'),
+    );
+    // The controls strip opts out of dragging so the buttons cannot be
+    // swallowed by the drag region that surrounds it.
+    expect(controls).toContain('-webkit-app-region: no-drag');
+    expect(controls).toContain('align-self: stretch');
+
+    // The buttons are caption-sized: full title-bar height targets without
+    // visually enlarging anything.
+    const button = styles.slice(
+      styles.indexOf('.titlebar-button {'),
+      styles.indexOf('.titlebar-button svg {'),
+    );
+    expect(button).toMatch(/width:\s*46px/);
+    expect(button).toContain('place-items: center');
+    expect(button).toContain('align-self: stretch');
+  });
+
+  it('styles hover, pressed and focus states, close destructively', async () => {
+    const styles = await read('styles/index.css');
+
+    // Pressed: no scale — a caption button must not move under the cursor.
+    const activeStart = styles.indexOf('.titlebar-button:active:not(:disabled)');
+    const active = styles.slice(activeStart, styles.indexOf('.titlebar-button:focus-visible'));
+    expect(active).toContain('transform: none');
+
+    // Focus: an inset ring, because an outline would escape the title bar.
+    const focusStart = styles.indexOf('.titlebar-button:focus-visible');
+    const focus = styles.slice(focusStart, styles.indexOf('}', focusStart));
+    expect(focus).toContain('inset 0 0 0 2px var(--accent-primary)');
+
+    // Hover lives in the pointer-media block: neutral for the window controls,
+    // destructive only for close.
+    const hover = styles.slice(styles.indexOf('@media (hover: hover) and (pointer: fine)'));
+    expect(hover).toContain('.titlebar-button:hover:not(:disabled):not(.close)');
+    expect(hover).toContain('.titlebar-button.close:hover:not(:disabled)');
+    expect(hover).toMatch(/\.titlebar-button\.close:hover[^}]*background:\s*var\(--accent-danger\)/);
+  });
+
+  it('keeps crisp one-device-pixel icon strokes', async () => {
+    const styles = await read('styles/index.css');
+    const start = styles.indexOf('.titlebar-button svg {');
+    const block = styles.slice(start, styles.indexOf('}', start));
+    expect(block).toContain('shape-rendering: crispEdges');
+    expect(block).toContain('stroke: currentColor');
   });
 });

@@ -71,6 +71,15 @@ export default function App() {
    * changes what the screen *says*, not what it does.
    */
   const [recovering, setRecovering] = useState(false);
+  /**
+   * Whether the window is maximized, so the caption button shows the right icon.
+   *
+   * Seeded from main once on mount and kept current by pushed events; the
+   * window can also be maximized by dragging it to a screen edge or double
+   * -clicking its drag region, so this is state to mirror rather than state
+   * to own.
+   */
+  const [maximized, setMaximized] = useState(false);
   const [receiveScreen, setReceiveScreen] = useState<ReceiveScreen>('CAMERA');
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [receiveNotice, setReceiveNotice] = useState('');
@@ -92,6 +101,26 @@ export default function App() {
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
+  }, []);
+
+  // Mirror the window's maximize state: read once for the initial render,
+  // then follow the events. Every path that changes it - the control, an edge
+  // drag, a title-bar double-click - funnels through 'maximize'/'unmaximize'
+  // in main, so this stays true without watching geometry.
+  useEffect(() => {
+    let alive = true;
+    void window.deqr.windowControls.isMaximized()
+      .then((value) => {
+        if (alive) setMaximized(value);
+      })
+      .catch(() => undefined);
+    const unsubscribe = window.deqr.windowControls.onMaximizeChanged((value) => {
+      if (alive) setMaximized(value);
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -369,9 +398,31 @@ export default function App() {
           <span className="titlebar-context">Optical Transfer</span>
         </div>
         <div className="titlebar-controls" aria-label="Window controls">
-          <button className="titlebar-button" onClick={() => window.deqr.windowControls.minimize()} aria-label="Minimize window">−</button>
-          <button className="titlebar-button" onClick={() => window.deqr.windowControls.maximizeOrRestore()} aria-label="Maximize or restore window">□</button>
-          <button className="titlebar-button close" onClick={() => window.deqr.windowControls.close()} aria-label="Close window">×</button>
+          {/* Drawn as SVG paths rather than text glyphs: a glyph's weight and
+              position depend on the font, which is why the old −/□/× row sat
+              visually detached from the rest of the chrome. Ten-by-ten viewBox
+              paths at one device stroke stay crisp on any scale factor. */}
+          <button className="titlebar-button" onClick={() => window.deqr.windowControls.minimize()} aria-label="Minimize window">
+            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" /></svg>
+          </button>
+          <button
+            className="titlebar-button"
+            onClick={() => window.deqr.windowControls.maximizeOrRestore()}
+            aria-label={maximized ? 'Restore window' : 'Maximize window'}
+          >
+            {maximized ? (
+              /* Restored: the small window in front of the maximized one. */
+              <svg viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2.5 2.5V0.5h7v7h-2" />
+                <rect x="0.5" y="2.5" width="7" height="7" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" /></svg>
+            )}
+          </button>
+          <button className="titlebar-button close" onClick={() => window.deqr.windowControls.close()} aria-label="Close window">
+            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" /></svg>
+          </button>
         </div>
       </header>
 

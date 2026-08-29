@@ -16,7 +16,18 @@ const api: DeqrAPI = {
   windowControls: {
     minimize: () => ipcRenderer.invoke('windowControls:minimize'),
     maximizeOrRestore: () => ipcRenderer.invoke('windowControls:maximizeOrRestore'),
-    close: () => ipcRenderer.invoke('windowControls:close')
+    close: () => ipcRenderer.invoke('windowControls:close'),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('windowControls:isMaximized'),
+    onMaximizeChanged: (listener: (maximized: boolean) => void) => {
+      const channel = 'windowControls:maximizeChanged';
+      const handler = (_event: IpcRendererEvent, maximized: boolean) => {
+        listener(maximized);
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    }
   },
   files: {
     selectForTransfer: (): Promise<FileSelectionResult | null> => ipcRenderer.invoke('files:selectForTransfer'),

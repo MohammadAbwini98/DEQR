@@ -217,6 +217,8 @@ function viewProgress(session: StreamingTransferSession): StreamingProgressView 
     manifestFramesEmitted: progress.manifestFramesEmitted,
     sourceSymbolsEmitted: progress.sourceSymbolsEmitted,
     repairSymbolsEmitted: progress.repairSymbolsEmitted,
+    recoverySymbolsEmitted: progress.recoverySymbolsEmitted,
+    recovering: progress.recovering,
     complete: progress.complete,
     resumeFromSegment: progress.resumeFromSegment,
   };

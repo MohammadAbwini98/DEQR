@@ -169,6 +169,17 @@ export interface StreamingProgressView {
   manifestFramesEmitted: number;
   sourceSymbolsEmitted: number;
   repairSymbolsEmitted: number;
+  /**
+   * Repair symbols emitted by the recovery tail, counted apart from the pass.
+   *
+   * The pass's own repair budget is spent whether or not anything was missed;
+   * these are the fresh symbols produced after the pass ran out. A climbing
+   * count beside a full progress bar is the honest picture of an open-ended
+   * recovery tail, and it is what keeps the screen from reading as stuck.
+   */
+  recoverySymbolsEmitted: number;
+  /** True while the recovery tail is producing. Never true during the first pass. */
+  recovering: boolean;
   complete: boolean;
   /** First segment this pass emits. Non-zero only for a resumed transfer. */
   resumeFromSegment: number;
@@ -185,6 +196,10 @@ export interface DeqrAPI {
     minimize: () => void;
     maximizeOrRestore: () => void;
     close: () => void;
+    /** Read-only state of the caller's own window, so the icon can match it. */
+    isMaximized: () => Promise<boolean>;
+    /** Maximize/restore changes pushed from main; returns an unsubscribe. */
+    onMaximizeChanged: (listener: (maximized: boolean) => void) => () => void;
   };
   files: {
     selectForTransfer: () => Promise<FileSelectionResult | null>;

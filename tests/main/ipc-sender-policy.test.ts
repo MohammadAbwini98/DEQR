@@ -175,8 +175,14 @@ describe('registered handlers enforce the policy', () => {
     const handlers = registered();
 
     // Deliberate: a frame that may not open a listener may not close the
-    // window mid-transfer either.
-    for (const channel of ['windowControls:minimize', 'windowControls:maximizeOrRestore', 'windowControls:close']) {
+    // window mid-transfer either — and the read-only maximize-state poll is
+    // privileged too, because it answers for the caller's own window.
+    for (const channel of [
+      'windowControls:minimize',
+      'windowControls:maximizeOrRestore',
+      'windowControls:close',
+      'windowControls:isMaximized',
+    ]) {
       expect(() => handlers.get(channel)!(topLevel('http://evil.test/')), channel).toThrow();
     }
   });
