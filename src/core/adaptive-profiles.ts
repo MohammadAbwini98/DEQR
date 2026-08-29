@@ -41,7 +41,7 @@ export const ADAPTIVE_PROFILES: Record<string, AdaptiveProfile> = {
     minPhysicalModuleSizeCssPx: 3,
     workerRecommendation: 4,
     cameraExpectation: { minFps: 30, decodeFps: 14 },
-    name: 'Fast' as const,
+    // name stays 'Turbo' per TransportProfile type; Fast is the adaptive alias for 4-code
   },
 };
 
