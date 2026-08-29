@@ -33,6 +33,7 @@
  */
 
 import { TransportProfile, effectiveFps } from '../core/transport-profiles';
+import { LatencyReservoir } from '../shared/latency-reservoir';
 
 /** Where frames come from. `null` means the pass is finished. */
 export interface FrameSource {
@@ -86,6 +87,14 @@ export interface SchedulerStats {
   totalPaintMs: number;
   maxPaintMs: number;
   health: SchedulerHealth;
+  /** Generation time (FrameSource.next) p50/p95 — Phase 01 sender diagnostics. */
+  generationP50Ms: number | null;
+  generationP95Ms: number | null;
+  /** Rasterization time (QR encode + paintQrFrame) p50/p95. */
+  rasterizationP50Ms: number | null;
+  rasterizationP95Ms: number | null;
+  /** Alias: rasterization === paint for this phase (encode+paint combined). */
+  queueUnderruns: number;
 }
 
 export interface SchedulerOptions {
@@ -134,6 +143,10 @@ export class QrFrameScheduler {
   private firstPaintAt: number | null = null;
   private lastPaintAt: number | null = null;
   private nextDueAt = 0;
+
+  private readonly generationReservoir = new LatencyReservoir();
+  private readonly rasterReservoir = new LatencyReservoir();
+  private queueUnderruns = 0;
 
   private readonly counters = {
     framesRequested: 0,
@@ -223,7 +236,19 @@ export class QrFrameScheduler {
       effectiveFps: measuredFps,
       targetFps: effectiveFps(this.profile),
       health: this.health(measuredFps),
+      generationP50Ms: this.generationReservoir.p50(),
+      generationP95Ms: this.generationReservoir.p95(),
+      rasterizationP50Ms: this.rasterReservoir.p50(),
+      rasterizationP95Ms: this.rasterReservoir.p95(),
+      queueUnderruns: this.queueUnderruns,
     };
+  }
+
+  /** Reset diagnostics reservoirs (used when diagnostics reset on hold). */
+  resetDiagnostics(): void {
+    this.generationReservoir.reset();
+    this.rasterReservoir.reset();
+    this.queueUnderruns = 0;
   }
 
   /* ------------------------------------------------------------- internals */
@@ -260,7 +285,10 @@ export class QrFrameScheduler {
     try {
       while (!this.stopped && !this.finished && this.queue.length < this.options.maxPrefetchedFrames) {
         this.counters.framesRequested += 1;
+        const genStart = this.clock.now();
         const frame = await this.source.next();
+        const genMs = this.clock.now() - genStart;
+        this.generationReservoir.record(genMs);
         if (this.stopped) return;
         if (!frame) {
           this.finished = true;
@@ -299,6 +327,7 @@ export class QrFrameScheduler {
       // spinning, and record it: a scheduler that is starving is a different
       // fault from one that is slow.
       this.counters.starvedWakeups += 1;
+      this.queueUnderruns += 1;
       this.nextDueAt += this.intervalMs;
       this.arm(this.delayUntilDue());
       return;
@@ -321,6 +350,7 @@ export class QrFrameScheduler {
     this.counters.framesPainted += 1;
     this.counters.totalPaintMs += paintMs;
     this.counters.maxPaintMs = Math.max(this.counters.maxPaintMs, paintMs);
+    this.rasterReservoir.record(paintMs);
     if (paintMs > this.intervalMs) this.counters.overruns += 1;
 
     if (this.firstPaintAt === null) this.firstPaintAt = startedAt;

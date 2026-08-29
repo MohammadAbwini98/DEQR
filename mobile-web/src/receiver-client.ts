@@ -412,12 +412,43 @@ export class ReceiverClient {
     }
     if (event.outcome === FRAME_OUTCOME.NO_CODE) return;
 
+    // Successful QR decode for all other outcomes (QR was found)
+    telemetry.recordSuccessfulDecode();
+
+    if (event.outcome === FRAME_OUTCOME.DUPLICATE) {
+      telemetry.recordDecoded(this.now(), event.decodeMs, event.pipelineMs, false, true);
+      return;
+    }
+    if (event.outcome === FRAME_OUTCOME.REJECTED) {
+      telemetry.recordDecoded(this.now(), event.decodeMs, event.pipelineMs, false, false);
+      // Distinguish parse vs foreign via reason code if available
+      const reason = (event as { reason?: string }).reason ?? '';
+      if (reason.includes('SESSION') || reason.includes('FOREIGN') || reason.includes('V1_FRAME')) {
+        telemetry.recordForeignInvalid();
+      } else {
+        telemetry.recordParseFailure();
+      }
+      return;
+    }
+    if (event.outcome === FRAME_OUTCOME.FOREIGN) {
+      telemetry.recordDecoded(this.now(), event.decodeMs, event.pipelineMs, false, false);
+      telemetry.recordForeignInvalid();
+      return;
+    }
+
+    // ACCEPTED / MANIFEST / PENDING_* are new sequences that advanced or will
+    const isNew = event.outcome === FRAME_OUTCOME.ACCEPTED || event.outcome === FRAME_OUTCOME.MANIFEST;
     telemetry.recordDecoded(
       this.now(),
       event.decodeMs,
       event.pipelineMs,
-      event.outcome === FRAME_OUTCOME.ACCEPTED,
-      event.outcome === FRAME_OUTCOME.DUPLICATE,
+      isNew,
+      false,
     );
+    if (isNew) {
+      // Count solved blocks heuristically: one unique symbol ~ one solved block for systematic
+      // The true solved count comes from pipeline progress; this is a fallback for client-side telemetry
+      telemetry.recordSolvedBlocks(1);
+    }
   }
 }

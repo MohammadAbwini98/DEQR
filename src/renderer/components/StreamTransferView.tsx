@@ -29,6 +29,10 @@ import {
   remainingCopy,
   summarizeCompression,
 } from '../sender-model';
+import { isDiagnosticsEnabled, diagnosticsLabel, exportDiagnosticsReport } from '../../shared/diagnostics-mode';
+import { SenderDiagnosticsCollector } from '../sender-diagnostics';
+import { DIAGNOSTICS_SCHEMA_VERSION, serializeReport, type DiagnosticRunReport } from '../../shared/diagnostics-schema';
+import { summarizeBenchmark } from '../../shared/diagnostics-summary';
 
 /**
  * The DEQR v2 transfer screen.
@@ -155,6 +159,13 @@ export default function StreamTransferView({
   const [startedAt] = useState(() => Date.now());
   const [elapsedMs, setElapsedMs] = useState(0);
   const [renderError, setRenderError] = useState(false);
+  const diagnosticsEnabled = useMemo(() => isDiagnosticsEnabled(), []);
+  const senderDiagnosticsRef = useRef<SenderDiagnosticsCollector | null>(null);
+  if (diagnosticsEnabled && senderDiagnosticsRef.current === null) {
+    senderDiagnosticsRef.current = new SenderDiagnosticsCollector();
+    senderDiagnosticsRef.current.start(startedAt);
+  }
+  const [diagnosticsReport, setDiagnosticsReport] = useState<DiagnosticRunReport | null>(null);
 
   const profile = useMemo(
     () => transportProfileById(metadata.transportProfileId) ?? DEFAULT_TRANSPORT_PROFILE,
@@ -342,7 +353,8 @@ export default function StreamTransferView({
     const tick = async () => {
       if (disposed) return;
       const scheduler = schedulerRef.current;
-      if (scheduler) setStats(scheduler.stats());
+      const schedulerStats = scheduler ? scheduler.stats() : null;
+      if (scheduler) setStats(schedulerStats);
       setElapsedMs(Date.now() - startedAt);
       try {
         const next = await window.deqr.streamTransfer.progress(sessionId);
@@ -359,6 +371,15 @@ export default function StreamTransferView({
         // climbing through the recovery tail, so this is the meter that stays
         // alive when coverage has finished moving.
         wireMeterRef.current.observe(performance.now(), parseByteCount(next.bytesOnTheWire));
+        if (diagnosticsEnabled && senderDiagnosticsRef.current && schedulerStats) {
+          senderDiagnosticsRef.current.recordScheduler(schedulerStats, Date.now());
+          senderDiagnosticsRef.current.recordProgress(next);
+          senderDiagnosticsRef.current.sampleTimeline(Date.now(), {
+            // capture/decode not applicable on sender, keep 0; unique ~ symbolsPresented
+            uniqueSymbols: next.sourceSymbolsEmitted + next.repairSymbolsEmitted,
+            usefulBytes: Number(BigInt(next.transportBytesCovered)),
+          });
+        }
       } catch {
         // A progress read for a session that is going away is not worth
         // surfacing; the frame source is what reports a real failure.
@@ -370,7 +391,7 @@ export default function StreamTransferView({
       disposed = true;
       window.clearInterval(handle);
     };
-  }, [sessionId, startedAt]);
+  }, [sessionId, startedAt, diagnosticsEnabled]);
 
   /* --------------------------------------------------------- derivations */
 
@@ -405,11 +426,131 @@ export default function StreamTransferView({
     else onHold();
   }, [held, onHold, onRelease]);
 
+  const handleExportDiagnostics = useCallback(() => {
+    if (!diagnosticsEnabled || !senderDiagnosticsRef.current) return;
+    const snap = senderDiagnosticsRef.current.snapshot();
+    const wallClockSeconds = elapsedMs / 1000;
+    const verifiedBytes = readout ? Number(readout.originalCovered) : 0;
+    const verifiedGoodput = wallClockSeconds > 0 ? verifiedBytes / wallClockSeconds : 0;
+    const diagStats = stats;
+    const report: DiagnosticRunReport = {
+      schemaVersion: DIAGNOSTICS_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      app: {
+        appVersion: '0.1.0',
+        buildChannel: 'prod',
+        diagnosticsMode: true,
+        diagnosticsLabel: diagnosticsLabel(true),
+      },
+      session: {
+        sessionId,
+        sha256Hex: metadata.sha256,
+        payloadBytes: Number(BigInt(metadata.originalSizeBytes)),
+        containerBytes: Number(BigInt(metadata.transportSizeBytes)),
+        transportBytes: Number(BigInt(metadata.transportSizeBytes)),
+        incompressible: metadata.compressionMode === 0,
+      },
+      sender: {
+        transportProfileId: profile.id,
+        transportProfileName: profile.name,
+        symbolSizeBytes: profile.symbolSizeBytes,
+        segmentSizeBytes: profile.segmentSizeBytes,
+        symbolsPerSegment: profile.symbolsPerSegment,
+        repairOverheadRatio: profile.repairOverheadRatio,
+        compressionMode: metadata.compressionMode,
+        compressionParam: 0,
+        fecProfileId: 1,
+      },
+      qr: {
+        version: profile.qrVersion,
+        eccLevel: profile.eccLevel,
+        quietZoneModules: profile.quietZoneModules,
+        moduleCount: profile.qrVersion * 4 + 17,
+        totalModules: profile.qrVersion * 4 + 17 + 2 * profile.quietZoneModules,
+        frameBytes: profile.symbolSizeBytes + 32,
+      },
+      fountain: {
+        fecProfileId: 1,
+        fecProfileName: 'LT_SYSTEMATIC_ROBUST_SOLITON_V1',
+        degreeDistribution: 'robust-soliton c=0.1 delta=0.05',
+        systematic: true,
+      },
+      camera: {
+        requestedWidth: 1280,
+        requestedHeight: 720,
+        requestedFacingMode: 'environment',
+        actualWidth: null,
+        actualHeight: null,
+        roiEdge: null,
+        sourceEdge: null,
+        roiCenterX: null,
+        roiCenterY: null,
+        captureScale: null,
+        pxPerModule: null,
+      },
+      workerCount: 1,
+      counters: {
+        sender: snap.counters,
+        receiver: {
+          cameraCallbacks: 0,
+          captureFps: 0,
+          fullFrameScans: 0,
+          cropScans: 0,
+          decoderAttempts: 0,
+          successfulQrDecodes: 0,
+          parseFailures: 0,
+          foreignInvalidFrames: 0,
+          duplicateSequenceNumbers: 0,
+          newSequenceNumbers: 0,
+          redundantFecSymbols: 0,
+          solvedBlocks: 0,
+          workerBusyDrops: 0,
+          decoderTimeP50Ms: null,
+          decoderTimeP95Ms: null,
+          acquisitionLatencyMs: null,
+          completionLatencyMs: null,
+          droppedStale: 0,
+          stalledRecoveries: 0,
+        },
+      },
+      timeline: snap.timeline,
+      transfer: {
+        wallClockSeconds,
+        verifiedOriginalBytes: verifiedBytes,
+        verifiedGoodputBytesPerSecond: verifiedGoodput,
+        presentationRateFps: diagStats?.effectiveFps ?? 0,
+        cameraFps: 0,
+        decodeFps: 0,
+        uniqueSymbolRatePerSecond: snap.counters.symbolsPresented / Math.max(1, wallClockSeconds),
+        complete: progress?.complete ?? false,
+        faultCode: null,
+      },
+      summary: summarizeBenchmark({
+        verifiedOriginalBytes: verifiedBytes,
+        wallClockSeconds,
+        presentedSymbols: snap.counters.symbolsPresented,
+        usefulNonRedundantSymbols: snap.counters.symbolsPresented - snap.counters.presentationStalls,
+        duplicateCount: 0,
+        redundantCount: 0,
+        decoderAttempts: snap.counters.symbolsPresented,
+        timeline: snap.timeline,
+      }),
+    };
+    setDiagnosticsReport(report);
+    try {
+      const json = serializeReport(report);
+      exportDiagnosticsReport(json, `deqr-sender-diagnostics-${sessionId}.json`);
+    } catch {
+      // serialization failed — keep report in state for inspection
+    }
+  }, [diagnosticsEnabled, diagnosticsReport, elapsedMs, metadata, profile, progress, readout, sessionId, stats]);
+
   return (
     <section className="transfer-view" aria-labelledby="transfer-heading">
       {/* Coarse by construction: this changes at most four times in a transfer
-          plus once per hold, however long the transfer runs. */}
+           plus once per hold, however long the transfer runs. */}
       <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{announced}</p>
+      {diagnosticsEnabled && <p className="diagnostics-banner" role="status" style={{ background: 'var(--warning, #f59e0b)', color: '#000', padding: '6px 10px', borderRadius: '6px', fontWeight: 600, marginBottom: '8px' }}>{diagnosticsLabel(true)}</p>}
 
       <header className="transfer-header">
         <div>
@@ -543,7 +684,21 @@ export default function StreamTransferView({
           <div><dt>Slowest paint</dt><dd>{stats ? `${stats.maxPaintMs.toFixed(1)} ms` : '—'}</dd></div>
           {/* Why an estimate is being withheld, in the estimator's own words. */}
           <div><dt>Rate samples</dt><dd>{reading.samples} {reading.withheld ? `· ${reading.withheld.toLowerCase().replace(/_/g, ' ')}` : '· stable'}</dd></div>
+          {diagnosticsEnabled && (
+            <>
+              <div><dt>Generation p50/p95</dt><dd>{stats ? `${stats.generationP50Ms?.toFixed(1) ?? '—'} / ${stats.generationP95Ms?.toFixed(1) ?? '—'} ms` : '—'}</dd></div>
+              <div><dt>Raster p50/p95</dt><dd>{stats ? `${stats.rasterizationP50Ms?.toFixed(1) ?? '—'} / ${stats.rasterizationP95Ms?.toFixed(1) ?? '—'} ms` : '—'}</dd></div>
+              <div><dt>Queue underruns</dt><dd>{stats ? stats.queueUnderruns.toLocaleString() : '—'}</dd></div>
+            </>
+          )}
         </dl>
+        {diagnosticsEnabled && (
+          <div className="diagnostics-export" style={{ marginTop: '12px', padding: '8px', border: '1px dashed var(--border)', borderRadius: '6px' }}>
+            <p style={{ margin: '0 0 8px 0', fontWeight: 600 }}>{diagnosticsLabel(true)} — {diagnosticsReport ? `captured ${diagnosticsReport.timeline.length} samples` : 'collecting...'}</p>
+            <button className="secondary" onClick={handleExportDiagnostics}>Export diagnostics JSON</button>
+            {diagnosticsReport && <p style={{ margin: '8px 0 0 0', fontSize: '12px', opacity: 0.7 }}>Verified goodput: {formatRate(diagnosticsReport.transfer.verifiedGoodputBytesPerSecond)} · Catch rate: {formatPercent(diagnosticsReport.summary?.catchRate ?? 0)} · Overhead: {formatPercent(diagnosticsReport.summary?.usefulOverhead ?? 0)}</p>}
+          </div>
+        )}
       </details>
 
       <div className="action-row transfer-actions">

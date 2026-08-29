@@ -4,6 +4,10 @@ import { discardExportedSession, exportVerifiedFile } from './export';
 import { HostMonitor, hostStatusCopy, type HostStatus } from './host-status';
 import { TelemetryCollector, type ReceiverTelemetry } from './metrics';
 import { ReceiverClient, type VerifiedTransfer } from './receiver-client';
+import { ReceiverDiagnosticsAggregator } from './receiver-diagnostics-collector';
+import { isDiagnosticsEnabled, diagnosticsLabel, exportDiagnosticsReport } from '../../src/shared/diagnostics-mode';
+import { DIAGNOSTICS_SCHEMA_VERSION, serializeReport, type DiagnosticRunReport } from '../../src/shared/diagnostics-schema';
+import { summarizeBenchmark } from '../../src/shared/diagnostics-summary';
 import { discardRetainedSessions, estimateDeviceStorage } from './receiver-storage';
 import {
   RECEIVER_EVENT,
@@ -105,6 +109,12 @@ export default function App() {
   const [progress, setProgress] = useState<ReceiveProgress>(emptyProgress());
   const [verify, setVerify] = useState<VerifyView | null>(null);
   const [telemetry, setTelemetry] = useState<ReceiverTelemetry | undefined>(undefined);
+  const diagnosticsEnabled = useMemo(() => isDiagnosticsEnabled(), []);
+  const receiverDiagnosticsRef = useRef<ReceiverDiagnosticsAggregator | null>(null);
+  if (diagnosticsEnabled && receiverDiagnosticsRef.current === null) {
+    receiverDiagnosticsRef.current = new ReceiverDiagnosticsAggregator();
+  }
+  const [diagnosticsReport, setDiagnosticsReport] = useState<DiagnosticRunReport | null>(null);
   const [message, setMessage] = useState('Ready to receive a DEQR transfer.');
   const [hostStatus, setHostStatus] = useState<HostStatus>('CHECKING');
   const [device, setDevice] = useState<{ availableBytes: number; measured: boolean } | null>(null);
@@ -331,19 +341,23 @@ export default function App() {
     if (!cameraShouldRun(state)) return;
     const receiver = client.current;
     const collector = telemetryRef.current;
+    const aggregator = receiverDiagnosticsRef.current;
+    if (diagnosticsEnabled && aggregator) aggregator.start(Date.now());
     const tick = () => {
       if (!mounted.current || !receiver) return;
-      setTelemetry(collector.snapshot(
-        performance.now(),
-        receiver.framesInFlight,
-        receiver.maxInFlight,
-        receiver.supportsBitmapTransfer,
-      ));
+      const nowPerf = performance.now();
+      const nowWall = Date.now();
+      const snap = collector.snapshot(nowPerf, receiver.framesInFlight, receiver.maxInFlight, receiver.supportsBitmapTransfer);
+      setTelemetry(snap);
+      if (diagnosticsEnabled && aggregator) {
+        // Snapshot with current pipeline progress for timeline (progressRef holds latest)
+        aggregator.snapshot(nowWall, snap, progressRef.current);
+      }
     };
     tick();
     const handle = window.setInterval(tick, TELEMETRY_INTERVAL_MS);
     return () => window.clearInterval(handle);
-  }, [state]);
+  }, [state, diagnosticsEnabled]);
 
   /* ------------------------------------------------------------------ stalls */
 
@@ -756,6 +770,92 @@ export default function App() {
             {scanTiming && <div className="wide"><dt>Local scanner timing</dt><dd>{scanTiming}</dd></div>}
           </dl>
         </details>
+        {diagnosticsEnabled && (
+          <details className="scan-details" open>
+            <summary>{diagnosticsLabel(true)}</summary>
+            <dl>
+              <div><dt>Camera callbacks</dt><dd>{telemetry?.cameraCallbacks ?? 0}</dd></div>
+              <div><dt>Capture FPS</dt><dd>{telemetry?.captureFps?.toFixed(1) ?? '—'}</dd></div>
+              <div><dt>Full scans</dt><dd>{telemetry?.fullFrameScans ?? 0}</dd></div>
+              <div><dt>Crop scans</dt><dd>{telemetry?.cropScans ?? 0}</dd></div>
+              <div><dt>Decoder attempts</dt><dd>{telemetry?.decoderAttempts ?? 0}</dd></div>
+              <div><dt>Successful decodes</dt><dd>{telemetry?.successfulQrDecodes ?? 0}</dd></div>
+              <div><dt>Parse failures</dt><dd>{telemetry?.parseFailures ?? 0}</dd></div>
+              <div><dt>Foreign/invalid</dt><dd>{telemetry?.foreignInvalidFrames ?? 0}</dd></div>
+              <div><dt>Duplicate seq</dt><dd>{telemetry?.duplicateSequenceNumbers ?? 0}</dd></div>
+              <div><dt>New seq</dt><dd>{telemetry?.newSequenceNumbers ?? 0}</dd></div>
+              <div><dt>Redundant FEC</dt><dd>{telemetry?.redundantFecSymbols ?? 0}</dd></div>
+              <div><dt>Solved blocks</dt><dd>{telemetry?.solvedBlocks ?? 0}</dd></div>
+              <div><dt>Worker busy drops</dt><dd>{telemetry?.workerBusyDrops ?? 0}</dd></div>
+              <div><dt>Decode p50/p95</dt><dd>{telemetry?.decodeP50Ms?.toFixed(1) ?? '—'} / {telemetry?.decodeP95Ms?.toFixed(1) ?? '—'} ms</dd></div>
+              <div><dt>Acquisition latency</dt><dd>{telemetry?.acquisitionLatencyMs !== null && telemetry?.acquisitionLatencyMs !== undefined ? `${telemetry.acquisitionLatencyMs} ms` : '—'}</dd></div>
+              <div><dt>Completion latency</dt><dd>{telemetry?.completionLatencyMs !== null && telemetry?.completionLatencyMs !== undefined ? `${telemetry.completionLatencyMs} ms` : '—'}</dd></div>
+            </dl>
+            <button className="secondary" onClick={() => {
+              if (!telemetry || !progress) return;
+              const report: DiagnosticRunReport = {
+                schemaVersion: DIAGNOSTICS_SCHEMA_VERSION,
+                generatedAt: new Date().toISOString(),
+                app: { appVersion: '0.1.0', buildChannel: 'prod', diagnosticsMode: true, diagnosticsLabel: diagnosticsLabel(true) },
+                session: { sessionId: progressRef.current.sessionActive ? 1 : 0, sha256Hex: '0'.repeat(64), payloadBytes: progress.originalBytes ?? 0, containerBytes: progress.transportBytes ?? 0, transportBytes: progress.transportBytes ?? 0, incompressible: true },
+                sender: { transportProfileId: 0, transportProfileName: 'unknown', symbolSizeBytes: 686, segmentSizeBytes: 1404928, symbolsPerSegment: 2048, repairOverheadRatio: 0.75, compressionMode: 0, compressionParam: 0, fecProfileId: 1 },
+                qr: { version: telemetry.optical?.qrVersion ?? 18, eccLevel: 'L', quietZoneModules: 4, moduleCount: telemetry.optical?.modulesPerSide ?? 89, totalModules: 97, frameBytes: 718 },
+                fountain: { fecProfileId: 1, fecProfileName: 'LT_SYSTEMATIC_ROBUST_SOLITON_V1', degreeDistribution: 'robust-soliton', systematic: true },
+                camera: { requestedWidth: 1280, requestedHeight: 720, requestedFacingMode: 'environment', actualWidth: telemetry.optical ? 1280 : null, actualHeight: telemetry.optical ? 720 : null, roiEdge: 720, sourceEdge: 836, roiCenterX: 640, roiCenterY: 360, captureScale: telemetry.optical ? 0.86 : null, pxPerModule: telemetry.optical?.pxPerModule ?? null },
+                workerCount: 1,
+                counters: {
+                  sender: { framesGenerated: 0, symbolsPresented: 0, presentationStalls: 0, queueUnderruns: 0, generationTimeP50Ms: null, generationTimeP95Ms: null, rasterizationTimeP50Ms: null, rasterizationTimeP95Ms: null, actualPresentationRateFps: 0, totalPaintMs: 0, maxPaintMs: 0, paintFailures: 0, overruns: 0 },
+                  receiver: {
+                    cameraCallbacks: telemetry.cameraCallbacks,
+                    captureFps: telemetry.captureFps,
+                    fullFrameScans: telemetry.fullFrameScans,
+                    cropScans: telemetry.cropScans,
+                    decoderAttempts: telemetry.decoderAttempts,
+                    successfulQrDecodes: telemetry.successfulQrDecodes,
+                    parseFailures: telemetry.parseFailures,
+                    foreignInvalidFrames: telemetry.foreignInvalidFrames,
+                    duplicateSequenceNumbers: telemetry.duplicateSequenceNumbers,
+                    newSequenceNumbers: telemetry.newSequenceNumbers,
+                    redundantFecSymbols: telemetry.redundantFecSymbols,
+                    solvedBlocks: telemetry.solvedBlocks,
+                    workerBusyDrops: telemetry.workerBusyDrops,
+                    decoderTimeP50Ms: telemetry.decodeP50Ms,
+                    decoderTimeP95Ms: telemetry.decodeP95Ms,
+                    acquisitionLatencyMs: telemetry.acquisitionLatencyMs,
+                    completionLatencyMs: telemetry.completionLatencyMs,
+                    droppedStale: telemetry.droppedStale,
+                    stalledRecoveries: telemetry.stalledRecoveries,
+                  },
+                },
+                timeline: receiverDiagnosticsRef.current ? receiverDiagnosticsRef.current.snapshot(Date.now(), telemetry, progressRef.current).timeline : [],
+                transfer: {
+                  wallClockSeconds: (Date.now() - (receiverDiagnosticsRef.current ? 0 : 0)) / 1000,
+                  verifiedOriginalBytes: progress.bytesCommitted ?? 0,
+                  verifiedGoodputBytesPerSecond: 0,
+                  presentationRateFps: 0,
+                  cameraFps: telemetry.captureFps,
+                  decodeFps: telemetry.decodedPerSecond,
+                  uniqueSymbolRatePerSecond: telemetry.uniquePerSecond,
+                  complete: progress.complete,
+                  faultCode: progress.fault ?? null,
+                },
+                summary: summarizeBenchmark({
+                  verifiedOriginalBytes: progress.bytesCommitted ?? 0,
+                  wallClockSeconds: 1,
+                  presentedSymbols: telemetry.decoderAttempts,
+                  usefulNonRedundantSymbols: telemetry.newSequenceNumbers,
+                  duplicateCount: telemetry.duplicateSequenceNumbers,
+                  redundantCount: telemetry.redundantFecSymbols,
+                  decoderAttempts: telemetry.decoderAttempts,
+                  timeline: [],
+                }),
+              };
+              setDiagnosticsReport(report);
+              try { exportDiagnosticsReport(serializeReport(report), `deqr-receiver-diagnostics-${Date.now()}.json`); } catch {}
+            }}>Export diagnostics JSON</button>
+            {diagnosticsReport && <p style={{ fontSize: '12px', opacity: 0.7, marginTop: '8px' }}>Report captured: {diagnosticsReport.timeline.length} samples · Goodput {diagnosticsReport.transfer.verifiedGoodputBytesPerSecond.toFixed(0)} B/s</p>}
+          </details>
+        )}
       </section>
 
       <div className="action-dock">

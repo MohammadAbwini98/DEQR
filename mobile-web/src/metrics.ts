@@ -259,6 +259,37 @@ export interface ReceiverTelemetry {
   optical: OpticalReading | null;
   /** Whether pixels reach the worker without a main-thread readback. */
   zeroCopyCapture: boolean;
+  // ── Phase 01 extended counters (required work §3) ───────────────────────
+  /** Camera callbacks: every onVideoFrame invocation (capture attempt + busy skip). */
+  cameraCallbacks: number;
+  /** Capture FPS alias (same as captureAttemptsPerSecond, kept for schema). */
+  captureFps: number;
+  /** Full-frame scans: full ROI jsQR attempts (this phase: equals decoderAttempts). */
+  fullFrameScans: number;
+  /** Crop scans: region-tracked cropped decode attempts (0 until Phase 07). */
+  cropScans: number;
+  /** Decoder attempts: total jsQR invocations. */
+  decoderAttempts: number;
+  /** Successful QR decodes: jsQR returned binaryData. */
+  successfulQrDecodes: number;
+  /** Parse failures: NOT_DEQR / FRAME_TOO_LONG / CRC_MISMATCH before fountain. */
+  parseFailures: number;
+  /** Foreign/invalid frames: SESSION_MISMATCH / V1_FRAME / foreign session. */
+  foreignInvalidFrames: number;
+  /** Duplicate sequence numbers: BoundedFingerprintSet hit or SEGMENT_COMMITTED. */
+  duplicateSequenceNumbers: number;
+  /** New sequence numbers: accepted unique frames that advanced transfer. */
+  newSequenceNumbers: number;
+  /** Redundant FEC symbols: well-formed but no new solved (REDUNDANT). */
+  redundantFecSymbols: number;
+  /** Solved blocks: source symbols recovered (cumulative). */
+  solvedBlocks: number;
+  /** Worker-busy drops alias for skippedBusy (schema name). */
+  workerBusyDrops: number;
+  /** Acquisition latency ms: session open → first new sequence (null until acquired). */
+  acquisitionLatencyMs: number | null;
+  /** Completion latency ms: last new sequence → verified (null until complete). */
+  completionLatencyMs: number | null;
 }
 
 export interface OpticalReading {
@@ -293,6 +324,23 @@ export class TelemetryCollector {
   private stalledRecoveries = 0;
   private optical: OpticalReading | null = null;
 
+  // ── Phase 01 extended counters ──────────────────────────────────────────
+  private cameraCallbacks = 0;
+  private fullFrameScans = 0;
+  private cropScans = 0;
+  private decoderAttempts = 0;
+  private successfulQrDecodes = 0;
+  private parseFailures = 0;
+  private foreignInvalidFrames = 0;
+  private duplicateSequenceNumbers = 0;
+  private newSequenceNumbers = 0;
+  private redundantFecSymbols = 0;
+  private solvedBlocks = 0;
+  private sessionStartAt: number | null = null;
+  private firstNewAt: number | null = null;
+  private lastNewAt: number | null = null;
+  private verifiedAt: number | null = null;
+
   startLongTaskMonitor(): void {
     this.longTasks.start();
   }
@@ -304,23 +352,80 @@ export class TelemetryCollector {
   recordCapture(at: number): void {
     this.capturedFrames += 1;
     this.captures.record(at);
+    this.cameraCallbacks += 1;
+    this.fullFrameScans += 1;
+    this.decoderAttempts += 1;
+    if (this.sessionStartAt === null) this.sessionStartAt = at;
   }
 
   recordSkippedBusy(): void {
     this.skippedBusy += 1;
+    this.cameraCallbacks += 1;
   }
 
   recordStalledRecovery(): void {
     this.stalledRecoveries += 1;
   }
 
+  /** Back-compat: unique=true means new sequence, duplicate=true means duplicate seq. */
   recordDecoded(at: number, decodeMs: number, pipelineMs: number, unique: boolean, duplicate: boolean): void {
     this.decodedFrames += 1;
     this.decodes.record(at);
     this.decodeLatency.record(decodeMs);
     this.pipelineLatency.record(pipelineMs);
-    if (unique) this.uniques.record(at);
-    if (duplicate) this.duplicateFrames += 1;
+    if (unique) {
+      this.uniques.record(at);
+      this.newSequenceNumbers += 1;
+      this.lastNewAt = at;
+      if (this.firstNewAt === null) this.firstNewAt = at;
+    }
+    if (duplicate) {
+      this.duplicateFrames += 1;
+      this.duplicateSequenceNumbers += 1;
+    }
+    // successful decode implied when this is called with a frame that reached pipeline
+    // (caller distinguishes NO_CODE vs decoded elsewhere)
+  }
+
+  recordSuccessfulDecode(): void {
+    this.successfulQrDecodes += 1;
+  }
+
+  recordParseFailure(): void {
+    this.parseFailures += 1;
+  }
+
+  recordForeignInvalid(): void {
+    this.foreignInvalidFrames += 1;
+  }
+
+  recordDuplicateSequence(): void {
+    this.duplicateSequenceNumbers += 1;
+  }
+
+  recordNewSequence(at: number): void {
+    this.newSequenceNumbers += 1;
+    this.lastNewAt = at;
+    if (this.firstNewAt === null) this.firstNewAt = at;
+    if (this.sessionStartAt === null) this.sessionStartAt = at;
+    this.uniques.record(at);
+  }
+
+  recordRedundantFec(): void {
+    this.redundantFecSymbols += 1;
+  }
+
+  recordSolvedBlocks(count: number): void {
+    if (Number.isFinite(count) && count > 0) this.solvedBlocks += count;
+  }
+
+  recordCropScan(): void {
+    this.cropScans += 1;
+    this.decoderAttempts += 1;
+  }
+
+  markVerified(at: number): void {
+    this.verifiedAt = at;
   }
 
   /** A frame the worker declined to decode. Not a decode, so no latency sample. */
@@ -333,6 +438,12 @@ export class TelemetryCollector {
   }
 
   snapshot(at: number, inFlight: number, maxInFlight: number, zeroCopyCapture: boolean): ReceiverTelemetry {
+    const acquisitionLatencyMs = this.firstNewAt !== null && this.sessionStartAt !== null
+      ? this.firstNewAt - this.sessionStartAt
+      : null;
+    const completionLatencyMs = this.verifiedAt !== null && this.lastNewAt !== null
+      ? this.verifiedAt - this.lastNewAt
+      : null;
     return {
       captureAttemptsPerSecond: this.captures.perSecond(at),
       decodedPerSecond: this.decodes.perSecond(at),
@@ -352,6 +463,21 @@ export class TelemetryCollector {
       longTasks: this.longTasks.report(),
       optical: this.optical,
       zeroCopyCapture,
+      cameraCallbacks: this.cameraCallbacks,
+      captureFps: this.captures.perSecond(at),
+      fullFrameScans: this.fullFrameScans,
+      cropScans: this.cropScans,
+      decoderAttempts: this.decoderAttempts,
+      successfulQrDecodes: this.successfulQrDecodes,
+      parseFailures: this.parseFailures,
+      foreignInvalidFrames: this.foreignInvalidFrames,
+      duplicateSequenceNumbers: this.duplicateSequenceNumbers,
+      newSequenceNumbers: this.newSequenceNumbers,
+      redundantFecSymbols: this.redundantFecSymbols,
+      solvedBlocks: this.solvedBlocks,
+      workerBusyDrops: this.skippedBusy,
+      acquisitionLatencyMs,
+      completionLatencyMs,
     };
   }
 
@@ -369,5 +495,20 @@ export class TelemetryCollector {
     this.droppedStale = 0;
     this.stalledRecoveries = 0;
     this.optical = null;
+    this.cameraCallbacks = 0;
+    this.fullFrameScans = 0;
+    this.cropScans = 0;
+    this.decoderAttempts = 0;
+    this.successfulQrDecodes = 0;
+    this.parseFailures = 0;
+    this.foreignInvalidFrames = 0;
+    this.duplicateSequenceNumbers = 0;
+    this.newSequenceNumbers = 0;
+    this.redundantFecSymbols = 0;
+    this.solvedBlocks = 0;
+    this.sessionStartAt = null;
+    this.firstNewAt = null;
+    this.lastNewAt = null;
+    this.verifiedAt = null;
   }
 }
