@@ -136,12 +136,16 @@ export function measureQrBudget(canvas: HTMLCanvasElement): number {
   return chooseQrBudget(stage.clientWidth - stagePadX, viewportBound);
 }
 
+export type QrMaskPattern = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
 export interface QrRenderPlan {
   version: number;
   eccLevel: QrEccLevel;
   geometry: QrRenderGeometry;
   /** Frame length this plan was resolved for. A different length needs a new plan. */
   frameBytes: number;
+  /** Pinned mask pattern 0..7 when set; undefined means library auto-selects (benchmarked, DEQR-owned path). */
+  maskPattern?: QrMaskPattern;
 }
 
 export class QrPayloadTooLargeError extends Error {
@@ -166,15 +170,24 @@ export function resolveQrRenderPlan(input: {
   quietZoneModules?: number;
   /** Overrides version selection. A transport profile pins it; v1 discovers it. */
   version?: number;
+  /** Pin mask 0..7 for deterministic cost; undefined = auto (benchmarked). */
+  maskPattern?: QrMaskPattern;
 }): QrRenderPlan {
   const { frameBytes, eccLevel, budgetCssPx } = input;
   const version = input.version ?? smallestVersionFor(frameBytes, eccLevel);
   if (version === null) throw new QrPayloadTooLargeError(frameBytes, eccLevel);
+  if (input.maskPattern !== undefined && (input.maskPattern < 0 || input.maskPattern > 7 || !Number.isInteger(input.maskPattern))) {
+    throw new Error(`maskPattern must be 0..7, received ${String(input.maskPattern)}`);
+  }
+  if (input.quietZoneModules !== undefined && input.quietZoneModules < QR_QUIET_ZONE_MODULES) {
+    throw new Error(`quietZoneModules ${input.quietZoneModules} below standard ${QR_QUIET_ZONE_MODULES} requires physical validation`);
+  }
 
   return {
     version,
     eccLevel,
     frameBytes,
+    maskPattern: input.maskPattern,
     geometry: planQrGeometry({
       version,
       budgetCssPx,
@@ -216,8 +229,37 @@ export async function paintQrFrame(
     version: plan.version,
     scale: plan.geometry.moduleScale,
     margin: plan.geometry.quietZoneModules,
+    // DEQR-owned pinned mask path — undefined means library auto-selects (benchmarked)
+    ...(plan.maskPattern !== undefined ? { maskPattern: plan.maskPattern } : {}),
     color: { dark: '#000000', light: '#ffffff' },
   });
+}
+
+/** Benchmark mask vs auto cost for a given frame (synthetic, no network). */
+export async function benchmarkMaskCost(
+  payload: Uint8Array,
+  plan: QrRenderPlan,
+  iterations = 10,
+): Promise<{ autoMs: number; pinnedMs: number; deltaMs: number }> {
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : ({} as HTMLCanvasElement);
+  // Fallback for node-canvas bench: use node canvas if available
+  const useCanvas = (canvas as unknown as { getContext?: unknown }).getContext ? canvas : undefined;
+  const time = async (mask?: QrMaskPattern): Promise<number> => {
+    const p: QrRenderPlan = mask !== undefined ? { ...plan, maskPattern: mask } : { ...plan, maskPattern: undefined };
+    const start = performance.now();
+    for (let i = 0; i < iterations; i++) {
+      if (useCanvas) await paintQrFrame(useCanvas as HTMLCanvasElement, payload, p);
+      else {
+        // Measure QRCode.create cost directly when no canvas (bench harness)
+        const QRCodeLib = await import('qrcode');
+        QRCodeLib.create([{ data: payload, mode: 'byte' }], { errorCorrectionLevel: p.eccLevel, version: p.version, maskPattern: p.maskPattern });
+      }
+    }
+    return (performance.now() - start) / iterations;
+  };
+  const autoMs = await time(undefined);
+  const pinnedMs = await time(0);
+  return { autoMs, pinnedMs, deltaMs: pinnedMs - autoMs };
 }
 
 /** True when a plan still describes this payload. Frame length is the only input. */
