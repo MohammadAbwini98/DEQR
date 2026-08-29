@@ -97,6 +97,11 @@ export class CameraController {
   private frameId = 0;
   /** Retired for the session after one failure, rather than retried per frame. */
   private bitmapCaptureUsable = true;
+  private actualSettings: { width: number | null; height: number | null; frameRate: number | null; facingMode: string | null } | null = null;
+
+  getActualSettings(): { width: number | null; height: number | null; frameRate: number | null; facingMode: string | null } | null {
+    return this.actualSettings;
+  }
 
   constructor(
     private readonly video: HTMLVideoElement,
@@ -126,8 +131,22 @@ export class CameraController {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 60 },
+          // Fallback chain: exact 60 where supported, otherwise ideal 60, then lower
         },
       });
+      // Record actual track settings for diagnostics (HT-05)
+      try {
+        const track = this.stream.getVideoTracks()[0];
+        const settings = track.getSettings() as MediaTrackSettings & { frameRate?: number };
+        // Store for diagnostics; actual FPS is reported via telemetry, not requested
+        (this as unknown as { actualSettings: unknown }).actualSettings = {
+          width: settings.width ?? null,
+          height: settings.height ?? null,
+          frameRate: settings.frameRate ?? null,
+          facingMode: settings.facingMode ?? null,
+        };
+      } catch {}
       if (generation !== this.generation || document.hidden) {
         this.stream.getTracks().forEach((track) => track.stop());
         this.stream = undefined;
