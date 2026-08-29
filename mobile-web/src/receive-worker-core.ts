@@ -62,6 +62,7 @@
 import jsQR from 'jsqr';
 
 import { qrModuleCount } from '../../src/core/qr-capacity';
+import { loadZxingDecoder, type ZxingDecoder } from './zxing-decoder';
 import { ReceivePipeline, type ReceivePipelineOptions } from './receive-pipeline';
 import {
   FRAME_OUTCOME,
@@ -99,6 +100,8 @@ export class ReceiveWorker {
   private epoch = 0;
   private open = false;
   private staleDropped = 0;
+  private zxingDecoder: ZxingDecoder | null = null;
+  private zxingLoading: Promise<void> | null = null;
 
   /** Cleanup owed by sessions this worker has already replaced. */
   private outgoingCleanup: Promise<void> = Promise.resolve();
@@ -155,6 +158,10 @@ export class ReceiveWorker {
   }
 
   private onOpen(epoch: number, limits: WorkerLimits, resume: boolean): void {
+    // HT-06: start loading QR-only WASM decoder in background (offline, no network)
+    if (!this.zxingDecoder && !this.zxingLoading) {
+      this.zxingLoading = loadZxingDecoder().then(d => { this.zxingDecoder = d; }).catch(() => {});
+    }
     // The outgoing session is released, not reset, and with no reason - so it
     // discards. A new `open` means the previous session is being replaced
     // rather than paused, and keeping its bytes would leave debris a resume
