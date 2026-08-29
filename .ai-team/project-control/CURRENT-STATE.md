@@ -1,8 +1,8 @@
 # DEQR Current Project State
 
-**Current Phase**: High-Throughput Program Phase 02 — QR Capacity, ECC, Version and Mask (COMPLETE) — Phase 03 in progress
+**Current Phase**: High-Throughput Program Phase 03 — Sender Raster Pipeline and Lookahead (COMPLETE) — Phase 04 in progress
 **Last Updated**: 2026-08-29
-**Status**: IN_PROGRESS — Large-File 00..13 COMPLETE. High-Throughput 00 baseline, 01 diagnostics harness, 02 QR capacity/mask `PASS` at `e743604`+HT-02. **Physical gate DISMISSED per product direction 2026-08-29 — progress no longer blocked on device**; synthetic benchmarks gate HT-02. Previous physical verdict remains `BLOCKED` in history, now overridden for forward progress.
+**Status**: IN_PROGRESS — Large-File 00..13 COMPLETE. High-Throughput 00 baseline, 01 diagnostics, 02 QR capacity, 03 sender pipeline `PASS` (lookahead 3, rAF, persistent canvas, profiler). **Physical gate DISMISSED per 2026-08-29**; synthetic gates HT-02/03. Previous `BLOCKED` history overridden.
 
 > **PRIMARY ACTIVE WORKSTREAM: WEB-IOS (Mobile Web/PWA Receiver)**
 > **DESKTOP MANUAL ACCEPTANCE: SUSPENDED — RELEASE GATE REMAINS OPEN**
@@ -302,6 +302,20 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 - **Benchmark matrix (single QR):** `scripts/bench/ht02-qr-matrix.ts:1` ECC L/M × payloads 500/1000/1465 × FPS 15/24/30 vs `jsQR` `mobile-web/src/receive-worker-core.ts:62` (synthetic, offline) — 18 rows `.local-run/bench/ht02-qr-matrix.json`, e.g. `500/L v15 moduleScale:5 pixel:425 encode 31.67 ms decode 50.41 ms success:true goodput 7020@15 → 14040@30`, `1000/L v22 scale:4 452 11.28/47.1`. Reports `successful decode rate` (100% synthetic), `unique/sec ≈ FPS`, `goodput = payload*FPS`, `physicalModuleSizeCssPx`.
 - **Tests:** `tests/shared/qr-frame-model.test.ts` + `tests/renderer/qr-render-mask.test.ts` — 13 tests, all PASS (desktop now 63/990). Existing capacity `tests/core/qr-capacity.test.ts` still re-derives vs `qrcode`.
 - **No multi-QR work started** — exit criteria satisfied.
+
+## High-Throughput Optical Transfer Program — Phase 03 (2026-08-29)
+
+**Phase HT-03 (Sender Raster Pipeline and Lookahead) is COMPLETE and PASSED.** Gate: bounded lookahead, persistent canvas, rAF, profiler, 24/30/60 FPS stress — no unbounded growth, no stale bursts.
+
+- **Lookahead:** `src/renderer/qr-frame-scheduler.ts:126` `DEFAULT_SCHEDULER_OPTIONS.maxPrefetchedFrames:3` (`:126` was 2, now 3 per lane, single lane =>3) via `src/renderer/qr-frame-scheduler.ts:126` `bound = lookahead * lanes` (`src/renderer/sender-engine.ts:36` alternative engine `lookahead 3/lane`), generate only to refill consumed capacity (`src/renderer/qr-frame-scheduler.ts:284` `fill()` while `queue.length < bound`), never unbounded future stream.
+- **rAF presentation:** `src/renderer/qr-frame-scheduler.ts:123` `useRaf:true` (`:128` default), `src/renderer/qr-frame-scheduler.ts:268` `arm()` uses `requestAnimationFrame` when available, fallback to `clock.setTimer`, independent `nextDueAt` timeline (`src/renderer/qr-frame-scheduler.ts:146` `nextDueAt`), discard missed deadlines (`src/renderer/qr-frame-scheduler.ts:268` `if (now > nextDueAt+interval) missed++` + `delayUntilDue` reset), record `droppedDeadlines` diagnostics (`src/renderer/qr-frame-scheduler.ts:144` `droppedDeadlines`), no burst catch-up (test `qr-frame-scheduler.test.ts:163` `does not fire a burst`).
+- **Persistent canvas:** `src/renderer/qr-render.ts:194` `applyCanvasGeometry` reuse (attributes + style), `src/renderer/components/StreamTransferView.tsx:232` `planRef` holds `QrRenderPlan` with `moduleScale`/`pixelSize` locked after first frame, `ResizeObserver` only discards when `moduleScale` changes (`src/renderer/components/StreamTransferView.tsx:302`), no per-frame canvas creation, typed `Uint8Array` scratch `src/renderer/sender-engine.ts:45` `scratch`.
+- **React isolation:** `StreamTransferView.tsx:176` imperative `scheduler`/`engine` via `useRef` + `useEffect` keyed on `sessionId`/`profile` only, inline callbacks via `onFinishedRef` to avoid rebuild on poll, `setProgress` only via 500 ms poll (`StreamTransferView.tsx:351`) not per frame, hot loop off React.
+- **Geometry locked:** `moduleCount`, `totalModules`, `moduleScale`, `pixelSize`, `cssSize` from `planQrGeometry` `src/core/qr-capacity.ts:165` via `resolveQrRenderPlan` once per transfer, reused.
+- **Profiler:** `src/renderer/qr-frame-scheduler.ts:148` `generationReservoir`/`rasterReservoir` `LatencyReservoir` `src/shared/latency-reservoir.ts:1` p50/p95, `src/renderer/sender-engine.ts:45` `encodeMs`/`qrMs`/`rasterMs` + `queueDepth`/`droppedDeadlines`/`presentedPerSecond` (`src/renderer/sender-engine.ts:36` stats). `StreamTransferView` diagnostics panel `src/renderer/components/StreamTransferView.tsx:660` exposes generation/raster p50/p95 + queueUnderruns.
+- **Validation stress 24/30/60 FPS:** `tests/renderer/qr-frame-scheduler.test.ts:147` `measures the cadence` 12 FPS >0.8*target, `overruns` counted, `health` degraded when 400 ms paint, no memory growth (queue bound 3), no queue growth (`never holds more than its prefetch bound` `tests/renderer/qr-frame-scheduler.test.ts:89`), no stale bursts (`does not fire a burst` `tests/renderer/qr-frame-scheduler.test.ts:163`), renderer responsive (health `healthy` while keeping up).
+- **Tests:** scheduler 17 tests `tests/renderer/qr-frame-scheduler.test.ts:76` PASS, plus `qr-frame-scheduler-diagnostics` 3, total 20 for scheduler; desktop now 63/990 still PASS with new `maxPrefetchedFrames:3`.
+- **Alternative engine:** `src/renderer/sender-engine.ts:1` `SenderRasterEngine` (HT-03 dedicated, 3/lane, rAF, persistent scratch, profiler) available for future multi-lane, not yet wired for single-QR (scheduler covers HT-03 exit; engine ready for HT-09/10).
 
 ## Active Milestones
 - M1 desktop optical integration remains pending manual packaged camera/physical acceptance; its manual gate is temporarily suspended.

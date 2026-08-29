@@ -101,8 +101,7 @@ export interface SchedulerOptions {
   /**
    * Frames held ahead of the painter.
    *
-   * Two by default: one being painted, one ready. Anything larger buys nothing
-   * against a 5,120 B/s optical link and starts to look like pre-generation.
+   * Three per HT-03 (one being painted, two ready) — bounded lookahead per lane.
    */
   maxPrefetchedFrames?: number;
   /**
@@ -120,13 +119,16 @@ export interface SchedulerOptions {
    * profile the machine cannot sustain at all.
    */
   degradedBelowFraction?: number;
+  /** Use requestAnimationFrame for display sync when available (HT-03). */
+  useRaf?: boolean;
 }
 
 export const DEFAULT_SCHEDULER_OPTIONS: Required<SchedulerOptions> = Object.freeze({
-  maxPrefetchedFrames: 2,
+  maxPrefetchedFrames: 3, // HT-03: 3 per lane, single lane => 3 (was 2)
   healthWindowFrames: 12,
   degradedBelowFraction: 0.8,
-});
+  useRaf: true,
+} as Required<SchedulerOptions>);
 
 export class QrFrameScheduler {
   private readonly options: Required<SchedulerOptions>;
@@ -137,6 +139,7 @@ export class QrFrameScheduler {
   private stopped = false;
   private finished = false;
   private timer: number | null = null;
+  private rafId: number | null = null;
   private fetching = false;
   private painting = false;
 
@@ -265,6 +268,13 @@ export class QrFrameScheduler {
   private arm(delayMs: number): void {
     if (this.stopped || !this.running) return;
     this.disarm();
+    if (this.options.useRaf && typeof requestAnimationFrame !== 'undefined') {
+      this.rafId = requestAnimationFrame(() => {
+        this.rafId = null;
+        void this.tick();
+      });
+      return;
+    }
     this.timer = this.clock.setTimer(Math.max(0, delayMs), () => {
       this.timer = null;
       void this.tick();
@@ -275,6 +285,10 @@ export class QrFrameScheduler {
     if (this.timer !== null) {
       this.clock.clearTimer(this.timer);
       this.timer = null;
+    }
+    if (this.rafId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
     }
   }
 
