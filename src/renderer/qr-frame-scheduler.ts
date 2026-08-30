@@ -271,6 +271,12 @@ export class QrFrameScheduler {
     if (this.options.useRaf && typeof requestAnimationFrame !== 'undefined') {
       this.rafId = requestAnimationFrame(() => {
         this.rafId = null;
+        const now = this.clock.now();
+        if (now < this.nextDueAt - 1) {
+          // Not yet due — reschedule without consuming a frame (rAF cadence ≠ profile cadence)
+          this.arm(Math.max(0, this.nextDueAt - now));
+          return;
+        }
         void this.tick();
       });
       return;
@@ -320,6 +326,13 @@ export class QrFrameScheduler {
     // check whose absence turned a shutdown into a crash once already.
     if (this.stopped || !this.running) return;
 
+    // Enforce profile cadence even when driven by rAF (~16.7 ms) vs profile interval (e.g. 83 ms)
+    const now = this.clock.now();
+    if (now < this.nextDueAt - 1) {
+      this.arm(this.delayUntilDue());
+      return;
+    }
+
     if (this.painting) {
       // A paint ran past its slot. Re-arm rather than overlapping paints, which
       // would put two frames on screen inside one hold window.
@@ -349,8 +362,10 @@ export class QrFrameScheduler {
 
     this.painting = true;
     const startedAt = this.clock.now();
+    let paintOk = false;
     try {
       await this.paint(frame);
+      paintOk = true;
     } catch {
       // A frame that fails to paint is lost; the schedule is not. Reporting it
       // is the caller's job, and `paintFailures` is how they find out.
@@ -361,14 +376,18 @@ export class QrFrameScheduler {
 
     const finishedAt = this.clock.now();
     const paintMs = finishedAt - startedAt;
-    this.counters.framesPainted += 1;
-    this.counters.totalPaintMs += paintMs;
-    this.counters.maxPaintMs = Math.max(this.counters.maxPaintMs, paintMs);
-    this.rasterReservoir.record(paintMs);
+    if (paintOk) {
+      this.counters.framesPainted += 1;
+      this.counters.totalPaintMs += paintMs;
+      this.counters.maxPaintMs = Math.max(this.counters.maxPaintMs, paintMs);
+      this.rasterReservoir.record(paintMs);
+      if (this.firstPaintAt === null) this.firstPaintAt = startedAt;
+      this.lastPaintAt = finishedAt;
+    } else {
+      // Even on failure, record raster attempt for diagnostics but don't count as presented
+      this.rasterReservoir.record(paintMs);
+    }
     if (paintMs > this.intervalMs) this.counters.overruns += 1;
-
-    if (this.firstPaintAt === null) this.firstPaintAt = startedAt;
-    this.lastPaintAt = finishedAt;
 
     // Absolute deadlines rather than "interval from now", so a slow paint does
     // not permanently shift the cadence later and later.

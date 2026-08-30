@@ -39,8 +39,6 @@
 import type { TelemetryCollector } from './metrics';
 import type { CapturedFrame } from './receiver-client';
 
-/** Floor on the capture interval. The worker's `canAccept` sets the real rate. */
-const SCAN_INTERVAL_MS = 40;
 const MAX_ROI_EDGE = 720;
 const MIN_ROI_EDGE = 96;
 
@@ -93,7 +91,6 @@ export class CameraController {
   private context?: CanvasRenderingContext2D;
   private canvasWidth = 0;
   private canvasHeight = 0;
-  private nextCaptureAt = 0;
   private frameId = 0;
   /** Retired for the session after one failure, rather than retried per frame. */
   private bitmapCaptureUsable = true;
@@ -165,7 +162,6 @@ export class CameraController {
         return false;
       }
 
-      this.nextCaptureAt = performance.now();
       this.schedule(generation);
       return true;
     } catch (error) {
@@ -244,7 +240,7 @@ export class CameraController {
       return;
     }
 
-    this.timeout = window.setTimeout(() => step(performance.now(), false), SCAN_INTERVAL_MS);
+    this.timeout = window.setTimeout(() => step(performance.now(), false), BACKPRESSURE_RETRY_MS);
   }
 
   private onVideoFrame(generation: number, now: number): void {
@@ -253,19 +249,12 @@ export class CameraController {
     // Backgrounded: do not read pixels, but keep a wake-up armed. Returning
     // early without one is what left the loop unable to resume.
     if (document.hidden) {
-      this.timeout = window.setTimeout(() => this.schedule(generation), SCAN_INTERVAL_MS);
+      this.timeout = window.setTimeout(() => this.schedule(generation), BACKPRESSURE_RETRY_MS);
       return;
     }
 
-    const waitMs = this.nextCaptureAt - now;
-    if (waitMs > 1) {
-      this.timeout = window.setTimeout(() => this.schedule(generation), waitMs);
-      return;
-    }
-
-    // The backpressure gate. Nothing above a timer is spent while the decoder
-    // is saturated - and at the profile cadences Phase 04 settled on, saturated
-    // is the normal state, not the exceptional one.
+    // Backpressure via canAccept — no 40 ms throttle. Every rVFC is an opportunity;
+    // worker saturation (maxInFlight) sets the real rate, not a timer.
     if (!this.target.canAccept()) {
       this.telemetry?.recordSkippedBusy();
       this.timeout = window.setTimeout(() => this.schedule(generation), BACKPRESSURE_RETRY_MS);
@@ -278,7 +267,6 @@ export class CameraController {
     void this.capture(generation)
       .catch(() => undefined)
       .finally(() => {
-        this.nextCaptureAt = performance.now() + SCAN_INTERVAL_MS;
         this.schedule(generation);
       });
   }

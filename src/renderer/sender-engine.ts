@@ -86,9 +86,6 @@ export class SenderRasterEngine {
   private readonly qrReservoir = new LatencyReservoir(256);
   private readonly rasterReservoir = new LatencyReservoir(256);
 
-  // Persistent typed buffer reuse — single scratch for frame copy if needed
-  private readonly scratch: Uint8Array;
-
   constructor(
     private readonly profile: TransportProfile,
     private readonly source: SenderEngineSource,
@@ -100,8 +97,6 @@ export class SenderRasterEngine {
     this.lanes = options.lanes ?? 1;
     this.useRaf = options.useRaf ?? true;
     this.intervalMs = 1000 / effectiveFps(profile);
-    const maxFrame = profile.symbolSizeBytes + 32;
-    this.scratch = new Uint8Array(maxFrame);
   }
 
   get bound(): number {
@@ -225,23 +220,24 @@ export class SenderRasterEngine {
     }
 
     const presentStart = performance.now();
+    let painted = false;
     try {
       const plan = this.planForFrame(frame);
-      // QR generation is inside painter (resolve + toCanvas); we time split via reservoirs if painter exposes phases
-      // For now, we time whole painter as raster; encode already timed in fill()
       await this.painter(frame, plan);
       const rasterMs = performance.now() - presentStart;
       this.rasterReservoir.record(rasterMs);
-      // QR time is part of raster for this engine (could split if needed)
-      this.qrReservoir.record(rasterMs * 0.7); // heuristic split, or measure separately if painter splits
+      this.qrReservoir.record(rasterMs); // measured as whole painter; split when painter exposes phases
+      painted = true;
     } catch {
-      // paint failure is counted as dropped
+      // paint failure is counted as dropped, not as presented
       this.droppedDeadlines += 1;
     }
 
-    this.framesPresented += 1;
-    if (this.firstPresentAt === null) this.firstPresentAt = presentStart;
-    this.lastPresentAt = performance.now();
+    if (painted) {
+      this.framesPresented += 1;
+      if (this.firstPresentAt === null) this.firstPresentAt = presentStart;
+      this.lastPresentAt = performance.now();
+    }
     this.nextDueAt += this.intervalMs;
     this.schedule();
   }
