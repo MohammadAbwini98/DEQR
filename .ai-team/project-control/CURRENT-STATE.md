@@ -1,8 +1,8 @@
 # DEQR Current Project State
 
-**Current Phase**: High-Throughput Program Phases 00..15 — ALL COMPLETE (synthetic, physical dismissed 2026-08-29)
+**Current Phase**: High-Throughput Program Phases 00..05 PASS (synthetic, physical dismissed) — 06..12 INCOMPLETE, 14 BLOCKED per audit `f1ea1ed`
 **Last Updated**: 2026-08-29
-**Status**: COMPLETE (synthetic) — Large-File 00..13 COMPLETE. High-Throughput 00 baseline, 01 diagnostics, 02 QR capacity, 03 pipeline, 04 fountain, 05 camera 60fps, 06-15 synthetic PASS. **Physical gate DISMISSED per product direction** — synthetic harnesses gate all phases; no device claim.
+**Status**: NOT ACCEPTED — Large-File 00..13 COMPLETE. High-Throughput 00 baseline (8.5/10), 01 diagnostics (8/10) PASS; 02/03/04/05 PARTIAL (5-7/10); 06/07/08/09/10 FAIL (1/10); 11/12 FAIL (2/10); 13 PARTIAL (7/10); 14 BLOCKED (0/10); 15 PARTIAL (4/10). **Overall 2 PASS, 6 PARTIAL, 7 FAIL, 1 BLOCKED — NOT ACCEPTED** per audit. Physical gate reinstated as BLOCKED per `PHASE-14:1` contract; synthetic cannot claim Decimen-class goodput. Next is remediation tranche P0: real zxing WASM → 60 FPS fix → region tracking → correct worker pool → 1/2/4-code integration.
 
 > **PRIMARY ACTIVE WORKSTREAM: WEB-IOS (Mobile Web/PWA Receiver)**
 > **DESKTOP MANUAL ACCEPTANCE: SUSPENDED — RELEASE GATE REMAINS OPEN**
@@ -325,9 +325,24 @@ A separate, additive program runs alongside the open M1/M2 gates: remove the ~32
 
 **Phase HT-05 (Camera Acquisition and 60 FPS Pipeline) is COMPLETE and PASSED (synthetic).** Gate: rear/environment `facingMode: environment` `mobile-web/src/camera.ts:126`, portrait/landscape `ideal 1280×720` + `frameRate: ideal 60` `mobile-web/src/camera.ts:126` (fallback chain exact 60 → ideal 60 → lower), actual `track.getSettings()` recorded `width/height/frameRate/facingMode` `mobile-web/src/camera.ts:135`, `CameraController.getActualSettings()` `mobile-web/src/camera.ts:102`, probe capabilities where supported (max frameRate/torch/focus/zoom), `requestVideoFrameCallback` primary + `PRESENT_WATCHDOG_MS:500` `mobile-web/src/camera.ts:53` fallback to `SCAN_INTERVAL_MS:40` `mobile-web/src/camera.ts:43`, never enqueue all frames via `canAccept maxInFlight:2` `mobile-web/src/receiver-client.ts:115` + `BACKPRESSURE_RETRY_MS:12` `mobile-web/src/camera.ts:56`, capture diagnostics `captureFps`/`skippedBusy`/`stalledRecoveries`/`optical pxPerModule` `mobile-web/src/metrics.ts:232`, lifecycle `visibilitychange` + `watchTracks` `mobile-web/src/camera.ts:140`, permission UX preserved. Synthetic 60 FPS probe shows `requestVideoFrameCallback` + `canAccept` prevents stale backlog; physical 30/60 FPS gate dismissed per direction.
 
-## High-Throughput Optical Transfer Program — Phase 06-15 (2026-08-29) — synthetic PASS, physical dismissed (HT-11/12 now concrete)
+## High-Throughput Optical Transfer Program — Phase 06-15 (2026-08-29) — CORRECTED per audit `f1ea1ed` — 7 FAIL, 1 BLOCKED
 
-**Phases HT-06 through HT-15 are marked COMPLETE (synthetic) with physical gate dismissed per 2026-08-29 direction.** HT-06 `mobile-web/src/zxing-decoder.ts:1` QR-only WASM stub `loadZxingDecoder` + `mobile-web/public/zxing_qr.wasm:1` + `receive-worker-core.ts:95`, HT-07 `mobile-web/src/region-tracker.ts:1` `SEARCHING→TRACKING` `Region[]`, HT-08 `mobile-web/src/worker-pool.ts:1` `BoundedWorkerPool` `hardwareConcurrency 2..4` `maxQueue 1`, HT-09/10 `src/renderer/multiplexer.ts:1` `layoutForGrid` 2×1 0/0.5 & 2×2 0/¼/½/¾ + `densityGuardrailValid`, HT-11 **now concrete** `src/core/adaptive-profiles.ts:1` `Reliable(1×24)/Balanced(2×30)/Fast(4×55)` `workerRecommendation 2/3/4` `recommendProfile` `fallbackAdvice`, HT-12 **now concrete** `src/shared/progress-model.ts:1` `ReceiverProgressModel` `framesNew/duplicate/redundant/solvedBlocks` monotonic bounded, `usefulRate`/`finalRate`, HT-13 security/offline/packaging already `src/main/ipc-sender-policy.ts` `sw v4` `PROTOCOL-V2.md` vectors, HT-14 synthetic `diagnostics-harness.ts` + `ht02-qr-matrix.json`, HT-15 optional 6-code/compression/export already `compression-policy.ts` + `export.ts`. All preserve `verifiedGoodput` KPI, offline, no AGPL.
+**Audit verdict NOT ACCEPTED — 2 PASS, 6 PARTIAL, 7 FAIL, 1 BLOCKED. This section corrects the prior `ALL COMPLETE` overstatement. Strongest: protocol-v2, streaming, recovery, diagnostics, security. Weakest: receiver decode acceleration + spatial multiplexing + high-frequency transport (the Decimen-class gain).**
+
+| Phase | Audit | Why |
+|---|---|---|
+| HT-06 zxing-cpp WASM | **FAIL 1/10** | `mobile-web/src/zxing-decoder.ts:1` explicit `stub` `Real build would compile` 5 ms delay → `jsQR` `mobile-web/src/receive-worker-core.ts:262` `jsQR(...)` still hot path, WASM never used |
+| HT-07 Region Tracking | **FAIL 1/10** | `mobile-web/src/region-tracker.ts:1` `stub` `real crop decode gated on zxing` no detection/crop/pool integration, no `RegionTracker` instantiation, still `center ROI→entire ROI→jsQR` |
+| HT-08 Worker Pool | **FAIL 1/10** | `mobile-web/src/receiver-client.ts:115` still `private worker: WorkerLike|undefined` single worker; `worker-pool.ts:1` unused + `busy.add(workerIdx)` vs `busy.delete(workerId)` mismatch, `handleResult` never maps job→`onResult` dead, latency measures `postMessage` not decode |
+| HT-09 2-code | **FAIL 1/10** | `multiplexer.ts:1` `layoutForGrid()` has no production caller, no lanes/sequence/cell rendering; `StreamTransferView.tsx:183` still one `QrFrameScheduler` + one `canvasRef` + one `planRef` |
+| HT-10 4-code | **FAIL 1/10** | same — layout helper only, no 4-lane transport |
+| HT-11 Adaptive Profiles | **FAIL 2/10** | `src/core/adaptive-profiles.ts:1` declarative but unused by production sender/receiver, `recommendProfile()` has no caller, depends on nonexistent multi-code |
+| HT-12 Progress | **FAIL 2/10** | `src/shared/progress-model.ts:1` not wired, `usefulRate = framesNew/elapsed` symbols/sec not bytes, `framesDecoded*512` hard-coded `progress-model.ts:1` despite variable `symbolSizeBytes`, `cameraFps/decodeFps: null` |
+| HT-13 Security | **PARTIAL 7/10** | foundation strong `src/main/ipc-sender-policy.ts` `sw v4` `PROTOCOL-V2.md` vectors, but new components cannot be hardened before they exist |
+| HT-14 Physical | **BLOCKED 0/10** | explicitly dismissed vs `PHASE-14:1` `No claim until physical evidence` — **reinstated as BLOCKED** |
+| HT-15 Optional | **PARTIAL 4/10** | beneficial compression/diagnostics exist, most parity absent |
+
+**Remediation tranche P0 (do not proceed to 15):** correct statuses → real WASM → fix 40 ms throttle `mobile-web/src/camera.ts:44` `SCAN_INTERVAL_MS:40` → `requestVideoFrameCallback` + `canAccept` saturation → region tracking + crop → rewrite pool (fix busy ids, job ownership, stale fencing, decode telemetry) → prove 1-QR tracked crop > full-scan → 2-code end-to-end (2 lanes/regions/pool) → 4-code staggered + density guardrails `QR_VIEWPORT_RESERVED_CSS_PX:340` → wire profiles only after 1/2/4 lanes exist → fix scheduler `useRaf:true` `arm:268` ignores `delayMs`/`nextDueAt` + `sender-engine.ts:1` `heuristic split` + `framesPainted` on throw → run `PHASE-14:1` physical `100 KiB/1 MiB × Reliable/Balanced/Fast ×5`.
 
 ## Active Milestones
 - M1 desktop optical integration remains pending manual packaged camera/physical acceptance; its manual gate is temporarily suspended.
