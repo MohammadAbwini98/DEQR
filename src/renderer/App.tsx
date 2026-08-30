@@ -11,6 +11,9 @@ import CameraReceiver from './components/CameraReceiver';
 import ResumeTokenEntry from './components/ResumeTokenEntry';
 import SenderPreflightCard from './components/SenderPreflightCard';
 import StreamTransferView from './components/StreamTransferView';
+import { TwoCodeTransferView } from './components/TwoCodeTransferView';
+import { FourCodeTransferView } from './components/FourCodeTransferView';
+import { ADAPTIVE_PROFILES } from '../core/adaptive-profiles';
 import { getIpcError, getSaveOutcome } from './app-model';
 import {
   SENDER_EVENT,
@@ -388,6 +391,37 @@ export default function App() {
   const metadata: StreamingTransferMetadata | null = session?.metadata ?? null;
   const fault = machine.fault;
 
+  const renderTransferView = (): React.ReactNode => {
+    if (!(surface === 'SEND' && (state === SENDER_STATE.TRANSFERRING || state === SENDER_STATE.HELD) && session && metadata)) return null;
+    const adaptive = Object.values(ADAPTIVE_PROFILES).find(p => p.id === metadata.transportProfileId);
+    const gridCount = adaptive?.gridCount ?? 1;
+    if (gridCount === 2) {
+      const profile = adaptive!;
+      return <TwoCodeTransferView profile={profile} sessionId={session.sessionId} />;
+    }
+    if (gridCount === 4) {
+      const profile = adaptive!;
+      return <FourCodeTransferView profile={profile} sessionId={session.sessionId} />;
+    }
+    return (
+      <StreamTransferView
+        sessionId={session.sessionId}
+        metadata={metadata}
+        held={state === SENDER_STATE.HELD}
+        onHold={() => dispatch({ type: SENDER_EVENT.HOLD })}
+        onRelease={() => dispatch({ type: SENDER_EVENT.RELEASE })}
+        onFinished={() => dispatch({ type: SENDER_EVENT.STREAM_FINISHED })}
+        onRecovering={() => setRecovering(true)}
+        recovering={recovering}
+        onFailed={(code, message) => dispatch({
+          type: SENDER_EVENT.STREAM_FAILED,
+          fault: { kind: 'stream', code, message },
+        })}
+        onCancel={requestCancel}
+      />
+    );
+  };
+
   return (
     <div className="app-container">
       <header className="titlebar">
@@ -490,25 +524,7 @@ export default function App() {
           </section>
         )}
 
-        {surface === 'SEND'
-          && (state === SENDER_STATE.TRANSFERRING || state === SENDER_STATE.HELD)
-          && session && metadata && (
-          <StreamTransferView
-            sessionId={session.sessionId}
-            metadata={metadata}
-            held={state === SENDER_STATE.HELD}
-            onHold={() => dispatch({ type: SENDER_EVENT.HOLD })}
-            onRelease={() => dispatch({ type: SENDER_EVENT.RELEASE })}
-            onFinished={() => dispatch({ type: SENDER_EVENT.STREAM_FINISHED })}
-            onRecovering={() => setRecovering(true)}
-            recovering={recovering}
-            onFailed={(code, message) => dispatch({
-              type: SENDER_EVENT.STREAM_FAILED,
-              fault: { kind: 'stream', code, message },
-            })}
-            onCancel={requestCancel}
-          />
-        )}
+        {renderTransferView()}
 
         {surface === 'SEND' && state === SENDER_STATE.STREAM_COMPLETE && metadata && (
           <section className="status-card status-card--stream-complete" aria-labelledby="stream-complete-heading">
